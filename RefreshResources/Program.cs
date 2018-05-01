@@ -1,5 +1,6 @@
 ﻿using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
+using Octokit;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -23,6 +24,21 @@ namespace RefreshResources
             "StrongGrid"
         };
 
+        private static IDictionary<string, string> LABELS = new Dictionary<string, string>
+        {
+            { "Breaking Change", "b60205" },
+            { "Bug", "ee0701" },
+            { "duplicate", "cccccc" },
+            { "help wanted", "128A0C" },
+            { "Improvement", "84b6eb" },
+            { "in progress", "b60205" },
+            { "invalid", "e6e6e6" },
+            { "New Feature", "0052cc" },
+            { "on hold", "e99695" },
+            { "question", "cc317c" },
+            { "wontfix", "ffffff" }
+        };
+
         private static string GITHUB_USERNAME = Environment.GetEnvironmentVariable("GITHUB_USERNAME");
         private static string GITHUB_PASSWORD = Environment.GetEnvironmentVariable("GITHUB_PASSWORD");
 
@@ -30,15 +46,14 @@ namespace RefreshResources
         {
             try
             {
+                // Make sure the expected labels are present on github
+                await RefreshGithubLabels().ConfigureAwait(false);
+
                 // Make sure the files in the resources folder are up to date
                 await RefreshResourcesAsync().ConfigureAwait(false);
 
                 // Copy resource files to projects
-                var files = GetSourceFiles(SOURCE_FOLDER);
-                foreach (var project in PROJECTS)
-                {
-                    CopyResourceFilesToProject(files, project);
-                }
+                await CopyResourceFiles().ConfigureAwait(false);
             }
 
             catch (Exception e)
@@ -54,9 +69,43 @@ namespace RefreshResources
             Console.ReadKey();
         }
 
+        private static async Task RefreshGithubLabels()
+        {
+            var credentials = new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
+            var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
+
+            foreach (var project in PROJECTS)
+            {
+                await RefreshGithubLabels(githubClient, project).ConfigureAwait(false);
+            }
+        }
+
+        private static async Task RefreshGithubLabels(IGitHubClient githubClient, string projectName)
+        {
+            var labels = await githubClient.Issue.Labels.GetAllForRepository("jericho", projectName).ConfigureAwait(false);
+
+            foreach (var label in LABELS)
+            {
+                // Perform case-insensitive search
+                var existingLabel = labels.FirstOrDefault(l => l.Name.Equals(label.Key, StringComparison.OrdinalIgnoreCase));
+
+                // Create label if it doesn't already exist
+                if (existingLabel == null)
+                {
+                    await githubClient.Issue.Labels.Create("jericho", projectName, new NewLabel(label.Key, label.Value)).ConfigureAwait(false);
+                }
+
+                // Update the existing label if it doesn't match perfectly (wrong color or inconstent casing)
+                else if (!existingLabel.Name.Equals(label.Key, StringComparison.Ordinal) || (!existingLabel.Color.Equals(label.Value, StringComparison.Ordinal)))
+                {
+                    await githubClient.Issue.Labels.Update("jericho", projectName, existingLabel.Name, new LabelUpdate(label.Key, label.Value)).ConfigureAwait(false);
+                }
+            }
+        }
+
         private static async Task RefreshResourcesAsync()
         {
-            var repo = new Repository(SOURCE_FOLDER);
+            var repo = new LibGit2Sharp.Repository(SOURCE_FOLDER);
             var author = repo.Config.BuildSignature(DateTimeOffset.Now);
             var httpClient = new HttpClient();
 
@@ -101,7 +150,7 @@ namespace RefreshResources
             if (changes.Any())
             {
                 Commands.Stage(repo, changes.Select(c => c.Path));
-                Commit commit = repo.Commit("Refresh resources", author, author);
+                var commit = repo.Commit("Refresh resources", author, author);
 
                 var pushOptions = new PushOptions()
                 {
@@ -130,7 +179,16 @@ namespace RefreshResources
             }
         }
 
-        private static void CopyResourceFilesToProject(IEnumerable<FileInfo> resoureFiles, string projectName)
+        private static async Task CopyResourceFiles()
+        {
+            var files = GetSourceFiles(SOURCE_FOLDER);
+            foreach (var project in PROJECTS)
+            {
+                await CopyResourceFilesToProject(files, project).ConfigureAwait(false);
+            }
+        }
+
+        private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resoureFiles, string projectName)
         {
             if (string.IsNullOrEmpty(projectName))
             {
@@ -151,7 +209,7 @@ namespace RefreshResources
                 if (!SameContent(sourceContent, destinationFile))
                 {
                     modifiedFiles.Add(destinationName);
-                    File.WriteAllText(destinationPath, sourceContent);
+                    await File.WriteAllTextAsync(destinationPath, sourceContent).ConfigureAwait(false);
                 }
             }
 
