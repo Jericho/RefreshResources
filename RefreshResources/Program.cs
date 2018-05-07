@@ -16,7 +16,7 @@ namespace RefreshResources
         private const string ROOT_FOLDER = "E:\\_build\\";
         private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 
-        private static string[] PROJECTS = new string[]
+        private static readonly string[] PROJECTS = new string[]
         {
             "CakeMail.RestClient",
             "Picton",
@@ -24,7 +24,7 @@ namespace RefreshResources
             "StrongGrid"
         };
 
-        private static IDictionary<string, string> LABELS = new Dictionary<string, string>
+        private static readonly IDictionary<string, string> LABELS = new Dictionary<string, string>
         {
             { "Breaking Change", "b60205" },
             { "Bug", "ee0701" },
@@ -39,8 +39,8 @@ namespace RefreshResources
             { "wontfix", "ffffff" }
         };
 
-        private static string GITHUB_USERNAME = Environment.GetEnvironmentVariable("GITHUB_USERNAME");
-        private static string GITHUB_PASSWORD = Environment.GetEnvironmentVariable("GITHUB_PASSWORD");
+        private static readonly string GITHUB_USERNAME = Environment.GetEnvironmentVariable("GITHUB_USERNAME");
+        private static readonly string GITHUB_PASSWORD = Environment.GetEnvironmentVariable("GITHUB_PASSWORD");
 
         static async Task Main(string[] args)
         {
