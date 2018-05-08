@@ -74,6 +74,9 @@ namespace RefreshResources
             var credentials = new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
             var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
 
+            Console.WriteLine();
+            Console.WriteLine("***** Github labels *****");
+
             foreach (var project in PROJECTS)
             {
                 await RefreshGithubLabels(githubClient, project).ConfigureAwait(false);
@@ -84,6 +87,9 @@ namespace RefreshResources
         {
             var labels = await githubClient.Issue.Labels.GetAllForRepository("jericho", projectName).ConfigureAwait(false);
 
+            var createdLabels = new List<string>();
+            var modifiedLabels = new List<string>();
+
             foreach (var label in LABELS)
             {
                 // Perform case-insensitive search
@@ -93,14 +99,20 @@ namespace RefreshResources
                 if (existingLabel == null)
                 {
                     await githubClient.Issue.Labels.Create("jericho", projectName, new NewLabel(label.Key, label.Value)).ConfigureAwait(false);
+                    createdLabels.Add(label.Key);
                 }
 
                 // Update the existing label if it doesn't match perfectly (wrong color or inconstent casing)
                 else if (!existingLabel.Name.Equals(label.Key, StringComparison.Ordinal) || (!existingLabel.Color.Equals(label.Value, StringComparison.Ordinal)))
                 {
                     await githubClient.Issue.Labels.Update("jericho", projectName, existingLabel.Name, new LabelUpdate(label.Key, label.Value)).ConfigureAwait(false);
+                    modifiedLabels.Add(label.Key);
                 }
             }
+
+            if (createdLabels.Any()) Console.WriteLine($"{projectName} added: " + string.Join(", ", createdLabels));
+            if (modifiedLabels.Any()) Console.WriteLine($"{projectName} modified: " + string.Join(", ", modifiedLabels));
+            if (!createdLabels.Any() && !modifiedLabels.Any()) Console.WriteLine($"{projectName}: All labels already up to date");
         }
 
         private static async Task RefreshResourcesAsync()
@@ -182,6 +194,10 @@ namespace RefreshResources
         private static async Task CopyResourceFiles()
         {
             var files = GetSourceFiles(SOURCE_FOLDER);
+
+            Console.WriteLine();
+            Console.WriteLine("***** Project Resource *****");
+
             foreach (var project in PROJECTS)
             {
                 await CopyResourceFilesToProject(files, project).ConfigureAwait(false);
@@ -213,15 +229,13 @@ namespace RefreshResources
                 }
             }
 
-            Console.WriteLine();
-            Console.WriteLine($"***** {projectName} *****");
             if (modifiedFiles.Any())
             {
-                Console.WriteLine(string.Join("\r\n", modifiedFiles.Select(f => "    " + f)));
+                Console.WriteLine($"{projectName} " + string.Join(", ", modifiedFiles));
             }
             else
             {
-                Console.WriteLine("All files already up to date");
+                Console.WriteLine($"{projectName}: All files already up to date");
             }
         }
 
