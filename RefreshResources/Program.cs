@@ -1,5 +1,8 @@
 ﻿using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
+using NuGet.Configuration;
+using NuGet.Protocol;
+using NuGet.Protocol.Core.Types;
 using Octokit;
 using System;
 using System.Collections.Generic;
@@ -7,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace RefreshResources
@@ -121,6 +125,13 @@ namespace RefreshResources
             var author = repo.Config.BuildSignature(DateTimeOffset.Now);
             var httpClient = new HttpClient();
 
+            var providers = new List<Lazy<INuGetResourceProvider>>();
+            providers.AddRange(NuGet.Protocol.Core.Types.Repository.Provider.GetCoreV3());  // Add v3 API support
+            var packageSource = new PackageSource("https://api.nuget.org/v3/index.json");
+            var sourceRepository = new SourceRepository(packageSource, providers);
+            var nugetPackageMetadataClient = sourceRepository.GetResource<PackageMetadataResource>();
+
+            //==================================================
             // STEP 1 - Git pull in case there are some changes in the GitHub repo that have not been pulled (this would be very surprising, but better safe than sorry)
             var pullOptions = new PullOptions()
             {
@@ -128,6 +139,7 @@ namespace RefreshResources
             };
             Commands.Pull(repo, author, pullOptions);
 
+            //==================================================
             // STEP 2 - Refresh the gitignore file
             using (var request = new HttpRequestMessage(HttpMethod.Get, "https://www.gitignore.io/api/visualstudio"))
             {
@@ -144,6 +156,7 @@ namespace RefreshResources
                 File.WriteAllText(Path.Combine(SOURCE_FOLDER, ".gitignore"), content);
             }
 
+            //==================================================
             // STEP 3 - Refresh the Cake bootstrap
             using (var request = new HttpRequestMessage(HttpMethod.Get, "https://raw.githubusercontent.com/cake-build/resources/develop/build.ps1"))
             {
@@ -157,7 +170,55 @@ namespace RefreshResources
                 File.WriteAllText(Path.Combine(SOURCE_FOLDER, "build.ps1"), content);
             }
 
-            // STEP 4 - Commit the changes (if any)
+            //==================================================
+            // STEP 4 - Make sure the addins referenced in the build script are up to date
+            var buildScriptFilePath = Path.Combine(SOURCE_FOLDER, "build.cake");
+            var temporaryFilePath = buildScriptFilePath + ".temporary";
+            var prefixes = new[] { "addin", "tool" };
+            var addinReferencesUpgraded = new StringBuilder();
+
+            using (var source = File.OpenText(buildScriptFilePath))
+            {
+                using (var tempFile = File.OpenWrite(temporaryFilePath))
+                using (var destination = new StreamWriter(tempFile))
+                {
+                    string line;
+                    while ((line = source.ReadLine()) != null)
+                    {
+                        foreach (var prefix in prefixes)
+                        {
+                            var fullPrefix = $"#{prefix} \"nuget:?package=";
+                            if (line.StartsWith(fullPrefix, StringComparison.OrdinalIgnoreCase))
+                            {
+                                var packageInfo = line.Replace(fullPrefix, "").Split('&');
+                                var packageName = packageInfo[0];
+
+                                var packageCurrentVersion = "0.0.0";
+                                if (packageInfo.Length > 1 && packageInfo[1].StartsWith("version=", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    packageCurrentVersion = packageInfo[1].Split('=')[1].Replace("\"", "");
+                                }
+
+                                var packageLatestVersion = await GetLatestNugetPackageVersion(packageName, nugetPackageMetadataClient).ConfigureAwait(false);
+
+                                if (packageCurrentVersion != packageLatestVersion)
+                                {
+                                    line = $"{fullPrefix}{packageName}&version={packageLatestVersion}\"";
+                                    addinReferencesUpgraded.AppendLine($"    {packageName} upgraded from {packageCurrentVersion} to {packageLatestVersion}");
+                                }
+                            }
+                        }
+
+                        await destination.WriteLineAsync(line).ConfigureAwait(false);
+                    }
+                }
+            }
+
+            File.Delete(buildScriptFilePath);
+            File.Move(temporaryFilePath, buildScriptFilePath);
+
+            //==================================================
+            // STEP 5 - Commit the changes (if any)
             var changes = repo.Diff.Compare<TreeChanges>();
             if (changes.Any())
             {
@@ -177,10 +238,22 @@ namespace RefreshResources
                 repo.Network.Push(repo.Branches["master"], pushOptions);
             }
 
+            //==================================================
+            // Write summary info to console
             Console.WriteLine();
-            Console.WriteLine("***** Resources *****");
-            var modifiedFiles = changes.Added
-                .Union(changes.Modified);
+            Console.WriteLine("***** Cake addins references *****");
+            if (addinReferencesUpgraded.Length > 0)
+            {
+                Console.Write(addinReferencesUpgraded.ToString());
+            }
+            else
+            {
+                Console.WriteLine("    All referenced addins are up to date");
+            }
+
+            Console.WriteLine();
+            Console.WriteLine("***** Resources committed to github repo *****");
+            var modifiedFiles = changes.Added.Union(changes.Modified);
             if (modifiedFiles.Any())
             {
                 Console.WriteLine(string.Join("\r\n", modifiedFiles.Select(c => "    " + c.Path)));
@@ -281,6 +354,19 @@ namespace RefreshResources
             var areEqual = new ReadOnlySpan<byte>(sourceContent).SequenceEqual(destinationContent);
 
             return areEqual;
+        }
+
+        private static async Task<string> GetLatestNugetPackageVersion(string packageName, PackageMetadataResource nugetPackageMetadataClient)
+        {
+            var searchMetadata = await nugetPackageMetadataClient.GetMetadataAsync(packageName, true, true, new NoopLogger(), CancellationToken.None).ConfigureAwait(false);
+            var latestPackage = searchMetadata.OrderByDescending(p => p.Published).FirstOrDefault();
+            if (latestPackage == null)
+            {
+                throw new Exception($"Unable to find package '{packageName}'");
+            }
+
+            var version = latestPackage.Identity.Version.ToNormalizedString();
+            return version;
         }
     }
 }
