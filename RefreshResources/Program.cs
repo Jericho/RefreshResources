@@ -1,5 +1,6 @@
 ﻿using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
+using NuGet.Common;
 using NuGet.Configuration;
 using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
@@ -10,8 +11,10 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Web;
 
 namespace RefreshResources
 {
@@ -19,6 +22,10 @@ namespace RefreshResources
     {
         private const string ROOT_FOLDER = "E:\\_build\\";
         private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
+        private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect that nuget allows a much large number of concurrent connections.
+
+        public static readonly Regex AddinReferenceRegex = new Regex("(?<lineprefix>.*?)(?<packageprefix>\\#addin nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
+        public static readonly Regex ToolReferenceRegex = new Regex("(?<lineprefix>.*?)(?<packageprefix>\\#tool nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
 
         private static readonly string[] PROJECTS = new string[]
         {
@@ -163,9 +170,7 @@ namespace RefreshResources
                 var response = await httpClient.SendAsync(request).ConfigureAwait(false);
                 var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-                content = content
-                    .Trim('\n')
-                    .Replace("\n", "\r\n");
+                content = content.Replace("\n", Environment.NewLine);
 
                 File.WriteAllText(Path.Combine(SOURCE_FOLDER, "build.ps1"), content);
             }
@@ -173,49 +178,24 @@ namespace RefreshResources
             //==================================================
             // STEP 4 - Make sure the addins referenced in the build script are up to date
             var buildScriptFilePath = Path.Combine(SOURCE_FOLDER, "build.cake");
-            var temporaryFilePath = buildScriptFilePath + ".temporary";
-            var prefixes = new[] { "addin", "tool" };
-            var addinReferencesUpgraded = new StringBuilder();
 
-            using (var source = File.OpenText(buildScriptFilePath))
-            {
-                using (var tempFile = File.OpenWrite(temporaryFilePath))
-                using (var destination = new StreamWriter(tempFile))
-                {
-                    string line;
-                    while ((line = source.ReadLine()) != null)
-                    {
-                        foreach (var prefix in prefixes)
-                        {
-                            var fullPrefix = $"#{prefix} \"nuget:?package=";
-                            if (line.StartsWith(fullPrefix, StringComparison.OrdinalIgnoreCase))
-                            {
-                                var packageInfo = line.Replace(fullPrefix, "").Split('&');
-                                var packageName = packageInfo[0];
+            var buildScriptContent = await File.ReadAllTextAsync(buildScriptFilePath).ConfigureAwait(false);
+            buildScriptContent = buildScriptContent.Replace(Environment.NewLine, "\n");  // '\n' is the EOL for regex 
 
-                                var packageCurrentVersion = "0.0.0";
-                                if (packageInfo.Length > 1 && packageInfo[1].StartsWith("version=", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    packageCurrentVersion = packageInfo[1].Split('=')[1].Replace("\"", "");
-                                }
+            var addinsMatchResults = AddinReferenceRegex.Matches(buildScriptContent);
+            var toolsMatchResults = ToolReferenceRegex.Matches(buildScriptContent);
 
-                                var packageLatestVersion = await GetLatestNugetPackageVersion(packageName, nugetPackageMetadataClient).ConfigureAwait(false);
+            var addinsReferencesInfo = await addinsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
+            var toolsReferencesInfo = await toolsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
 
-                                if (packageCurrentVersion != packageLatestVersion)
-                                {
-                                    line = $"{fullPrefix}{packageName}&version={packageLatestVersion}\"";
-                                    addinReferencesUpgraded.AppendLine($"    {packageName} upgraded from {packageCurrentVersion} to {packageLatestVersion}");
-                                }
-                            }
-                        }
+            var referencesInfo = addinsReferencesInfo.Union(toolsReferencesInfo).OrderBy(r => r.Name).ToArray();
 
-                        await destination.WriteLineAsync(line).ConfigureAwait(false);
-                    }
-                }
-            }
+            var updatedBuildScriptContent = AddinReferenceRegex.Replace(buildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
+            updatedBuildScriptContent = ToolReferenceRegex.Replace(buildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
+            updatedBuildScriptContent = updatedBuildScriptContent.Replace("\n", Environment.NewLine);
 
-            File.Delete(buildScriptFilePath);
-            File.Move(temporaryFilePath, buildScriptFilePath);
+            await File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent).ConfigureAwait(false);
+
 
             //==================================================
             // STEP 5 - Commit the changes (if any)
@@ -242,9 +222,10 @@ namespace RefreshResources
             // Write summary info to console
             Console.WriteLine();
             Console.WriteLine("***** Cake addins references *****");
-            if (addinReferencesUpgraded.Length > 0)
+            var updatedReferences = referencesInfo.Where(r => r.ReferencedVersion != r.LatestVersion);
+            if (updatedReferences.Any())
             {
-                Console.Write(addinReferencesUpgraded.ToString());
+                Console.WriteLine(string.Join(Environment.NewLine, updatedReferences.Select(r => $"    {r.Name} {r.ReferencedVersion} --> {r.LatestVersion}")));
             }
             else
             {
@@ -256,7 +237,7 @@ namespace RefreshResources
             var modifiedFiles = changes.Added.Union(changes.Modified);
             if (modifiedFiles.Any())
             {
-                Console.WriteLine(string.Join("\r\n", modifiedFiles.Select(c => "    " + c.Path)));
+                Console.WriteLine(string.Join(Environment.NewLine, modifiedFiles.Select(c => $"    {c.Path}")));
             }
             else
             {
@@ -269,7 +250,7 @@ namespace RefreshResources
             var files = GetSourceFiles(SOURCE_FOLDER);
 
             Console.WriteLine();
-            Console.WriteLine("***** Project Resource *****");
+            Console.WriteLine("***** Project Resources *****");
 
             foreach (var project in PROJECTS)
             {
@@ -358,7 +339,7 @@ namespace RefreshResources
 
         private static async Task<string> GetLatestNugetPackageVersion(string packageName, PackageMetadataResource nugetPackageMetadataClient)
         {
-            var searchMetadata = await nugetPackageMetadataClient.GetMetadataAsync(packageName, true, true, new NoopLogger(), CancellationToken.None).ConfigureAwait(false);
+            var searchMetadata = await nugetPackageMetadataClient.GetMetadataAsync(packageName, true, true, NullLogger.Instance, CancellationToken.None).ConfigureAwait(false);
             var latestPackage = searchMetadata.OrderByDescending(p => p.Published).FirstOrDefault();
             if (latestPackage == null)
             {
@@ -367,6 +348,44 @@ namespace RefreshResources
 
             var version = latestPackage.Identity.Version.ToNormalizedString();
             return version;
+        }
+
+        private static async Task<(string Name, string ReferencedVersion, string LatestVersion)> GetReferencedPackageInfo(Match match, PackageMetadataResource nugetPackageMetadataClient)
+        {
+            var parameters = HttpUtility.ParseQueryString(match.Groups["referencestring"].Value);
+            var packageName = parameters["package"];
+            var referencedVersion = parameters["version"];
+            var latestVersion = await GetLatestNugetPackageVersion(packageName, nugetPackageMetadataClient).ConfigureAwait(false);
+
+            return (packageName, referencedVersion, latestVersion);
+        }
+
+        private static string GetPackageReferenceWithLatestVersion(Match match, IEnumerable<(string Name, string ReferencedVersion, string LatestVersion)> referencesInfo)
+        {
+            var parameters = HttpUtility.ParseQueryString(match.Groups["referencestring"].Value);
+
+            // These are the supported parameters as documented here: https://cakebuild.net/docs/fundamentals/preprocessor-directives
+            var packageName = parameters["package"];
+            var referencedVersion = parameters["version"];
+            var loadDependencies = parameters["loaddependencies"];
+            var include = parameters["include"];
+            var exclude = parameters["exclude"];
+            var prerelease = parameters.AllKeys.Contains("prerelease");
+
+            var packageLatestVersion = referencesInfo.First(r => r.Name == packageName).LatestVersion;
+
+            var newContent = new StringBuilder();
+            newContent.Append(match.Groups["lineprefix"].Value);
+            newContent.Append(match.Groups["packageprefix"].Value);
+            newContent.AppendFormat("package={0}", packageName);
+            newContent.AppendFormat("&version={0}", packageLatestVersion);
+            if (!string.IsNullOrEmpty(loadDependencies)) newContent.AppendFormat("&loaddependencies={0}", loadDependencies);
+            if (!string.IsNullOrEmpty(include)) newContent.AppendFormat("&include={0}", include);
+            if (!string.IsNullOrEmpty(exclude)) newContent.AppendFormat("&exclude={0}", exclude);
+            if (prerelease) newContent.Append("&prerelease");
+            newContent.Append(match.Groups["linepostfix"].Value);
+
+            return newContent.ToString();
         }
     }
 }
