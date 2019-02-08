@@ -340,7 +340,20 @@ namespace RefreshResources
         private static async Task<string> GetLatestNugetPackageVersion(string packageName, PackageMetadataResource nugetPackageMetadataClient)
         {
             var searchMetadata = await nugetPackageMetadataClient.GetMetadataAsync(packageName, true, true, NullLogger.Instance, CancellationToken.None).ConfigureAwait(false);
-            var latestPackage = searchMetadata.OrderByDescending(p => p.Published).FirstOrDefault();
+
+            IPackageSearchMetadata latestPackage = null;
+            if (searchMetadata != null && searchMetadata.Any())
+            {
+                if (searchMetadata.All(p => p.Identity?.HasVersion ?? false))
+                {
+                    latestPackage = searchMetadata.OrderByDescending(p => p.Identity.Version).FirstOrDefault();
+                }
+                else
+                {
+                    latestPackage = searchMetadata.OrderByDescending(p => p.Published).FirstOrDefault();
+                }
+            }
+
             if (latestPackage == null)
             {
                 throw new Exception($"Unable to find package '{packageName}'");
