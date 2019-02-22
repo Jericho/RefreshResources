@@ -72,12 +72,15 @@ namespace RefreshResources
                 Console.WriteLine(e.GetBaseException().Message);
             }
 
-            // Flush the console key buffer
-            while (Console.KeyAvailable) Console.ReadKey(true);
+            if (!args.Contains("nopause"))
+            {
+                // Flush the console key buffer
+                while (Console.KeyAvailable) Console.ReadKey(true);
 
-            // Wait for user to press a key
-            Console.WriteLine("\r\nPress any key to exit...");
-            Console.ReadKey();
+                // Wait for user to press a key
+                Console.WriteLine("\r\nPress any key to exit...");
+                Console.ReadKey();
+            }
         }
 
         private static async Task RefreshGithubLabels()

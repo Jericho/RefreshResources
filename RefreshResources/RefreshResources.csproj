@@ -1,15 +1,21 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>netcoreapp2.0</TargetFramework>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <TargetLatestRuntimePatch>false</TargetLatestRuntimePatch>
+    <RuntimeIdentifier>win10-x64</RuntimeIdentifier>
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
-  <ItemGroup>
+  <PropertyGroup>
+    <AssemblyTitle>RefreshResources</AssemblyTitle>
+    <Authors>jericho</Authors>
+    <Description>Tool to refresh resources in my projects.</Description>
+    <Copyright>Copyright Jericho 2018 - Present</Copyright>
+  </PropertyGroup>
+
+    <ItemGroup>
     <PackageReference Include="LibGit2Sharp" Version="0.26.0" />
     <PackageReference Include="NuGet.Protocol.Core.v3" Version="4.2.0" />
     <PackageReference Include="Octokit" Version="0.32.0" />
