@@ -103,8 +103,11 @@ Task("Run")
 	.Does(() =>
 {
 	StartProcess(
-		new FilePath($"{publishDir}{appName}.exe nopause"),
-		new ProcessSettings() { });
+		new FilePath($"{publishDir}{appName}.exe"),
+		new ProcessSettings()
+		{
+			Arguments = "nopause"
+		});
 });
 
 
