@@ -343,7 +343,7 @@ namespace RefreshResources
 
         private static async Task<string> GetLatestNugetPackageVersion(string packageName, PackageMetadataResource nugetPackageMetadataClient)
         {
-            var searchMetadata = await nugetPackageMetadataClient.GetMetadataAsync(packageName, true, true, NullLogger.Instance, CancellationToken.None).ConfigureAwait(false);
+            var searchMetadata = await nugetPackageMetadataClient.GetMetadataAsync(packageName, false, false, NullLogger.Instance, CancellationToken.None).ConfigureAwait(false);
 
             IPackageSearchMetadata latestPackage = null;
             if (searchMetadata != null && searchMetadata.Any())
