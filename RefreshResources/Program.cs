@@ -51,6 +51,7 @@ namespace RefreshResources
 			{ "wontfix", "ffffff" }
 		};
 
+		private static readonly string GITHUB_TOKEN = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
 		private static readonly string GITHUB_USERNAME = Environment.GetEnvironmentVariable("GITHUB_USERNAME");
 		private static readonly string GITHUB_PASSWORD = Environment.GetEnvironmentVariable("GITHUB_PASSWORD");
 
@@ -86,7 +87,7 @@ namespace RefreshResources
 
 		private static async Task RefreshGithubLabels()
 		{
-			var credentials = new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
+			var credentials = !string.IsNullOrEmpty(GITHUB_TOKEN) ? new Octokit.Credentials(GITHUB_TOKEN) : new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
 			var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
 
 			Console.WriteLine();
