@@ -99,12 +99,16 @@ Task("Run")
 	.IsDependentOn("Publish")
 	.Does(() =>
 {
-	StartProcess(
+	var processResult = StartProcess(
 		new FilePath($"{publishDir}{appName}.exe"),
 		new ProcessSettings()
 		{
 			Arguments = "nopause"
 		});
+	if (processResult != 0)
+	{
+		throw new Exception($"{appName} did not complete successfully. Result code: {processResult}");
+	}
 });
 
 
