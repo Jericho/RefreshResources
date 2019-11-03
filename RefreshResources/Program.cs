@@ -196,7 +196,7 @@ namespace RefreshResources
 			var referencesInfo = addinsReferencesInfo.Union(toolsReferencesInfo).OrderBy(r => r.Name).ToArray();
 
 			var updatedBuildScriptContent = AddinReferenceRegex.Replace(buildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
-			updatedBuildScriptContent = ToolReferenceRegex.Replace(buildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
+			updatedBuildScriptContent = ToolReferenceRegex.Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
 			updatedBuildScriptContent = updatedBuildScriptContent.Replace("\n", Environment.NewLine);
 
 			await File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent).ConfigureAwait(false);
