@@ -89,8 +89,6 @@ Task("Publish")
 {
 	DotNetCorePublish($"./{appName}.sln", new DotNetCorePublishSettings
 	{
-		Framework = "netcoreapp2.1",
-		Runtime = "win10-x64",
 		Configuration = configuration,
 		NoRestore = true,
 		OutputDirectory = publishDir
