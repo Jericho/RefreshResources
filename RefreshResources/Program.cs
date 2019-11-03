@@ -214,11 +214,16 @@ namespace RefreshResources
 				{
 					CredentialsProvider = new CredentialsHandler(
 					(url, usernameFromUrl, types) =>
-						new UsernamePasswordCredentials()
+					{
+						if (!string.IsNullOrEmpty(GITHUB_TOKEN))
 						{
-							Username = GITHUB_USERNAME,
-							Password = GITHUB_PASSWORD
-						})
+							return new UsernamePasswordCredentials() { Username = GITHUB_TOKEN, Password = string.Empty };
+						}
+						else
+						{
+							return new UsernamePasswordCredentials() { Username = GITHUB_USERNAME, Password = GITHUB_PASSWORD };
+						}
+					})
 				};
 				repo.Network.Push(repo.Branches["master"], pushOptions);
 			}
