@@ -27,14 +27,14 @@ namespace RefreshResources
 		public static readonly Regex AddinReferenceRegex = new Regex("(?<lineprefix>.*?)(?<packageprefix>\\#addin nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
 		public static readonly Regex ToolReferenceRegex = new Regex("(?<lineprefix>.*?)(?<packageprefix>\\#tool nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
 
-		private static readonly string[] PROJECTS = new string[]
+		private static readonly IEnumerable<(string Owner, string Project)> PROJECTS = new List<(string, string)>
 		{
-			"CakeMail.RestClient",
-			"Http-Multipart-Data-Parser",
-			"Picton",
-			"Picton.Messaging",
-			"StrongGrid",
-			"ZoomNet"
+			( "jericho", "CakeMail.RestClient" ),
+			( "Vodurden", "Http-Multipart-Data-Parser" ),
+			( "jericho", "Picton" ),
+			( "jericho", "Picton.Messaging" ),
+			( "jericho", "StrongGrid" ),
+			( "jericho", "ZoomNet" )
 		};
 
 		private static readonly IDictionary<string, string> LABELS = new Dictionary<string, string>
@@ -96,13 +96,13 @@ namespace RefreshResources
 
 			foreach (var project in PROJECTS)
 			{
-				await RefreshGithubLabels(githubClient, project).ConfigureAwait(false);
+				await RefreshGithubLabels(githubClient, project.Owner, project.Project).ConfigureAwait(false);
 			}
 		}
 
-		private static async Task RefreshGithubLabels(IGitHubClient githubClient, string projectName)
+		private static async Task RefreshGithubLabels(IGitHubClient githubClient, string ownerName, string projectName)
 		{
-			var labels = await githubClient.Issue.Labels.GetAllForRepository("jericho", projectName).ConfigureAwait(false);
+			var labels = await githubClient.Issue.Labels.GetAllForRepository(ownerName, projectName).ConfigureAwait(false);
 
 			var createdLabels = new List<string>();
 			var modifiedLabels = new List<string>();
@@ -115,14 +115,14 @@ namespace RefreshResources
 				// Create label if it doesn't already exist
 				if (existingLabel == null)
 				{
-					await githubClient.Issue.Labels.Create("jericho", projectName, new NewLabel(label.Key, label.Value)).ConfigureAwait(false);
+					await githubClient.Issue.Labels.Create(ownerName, projectName, new NewLabel(label.Key, label.Value)).ConfigureAwait(false);
 					createdLabels.Add(label.Key);
 				}
 
 				// Update the existing label if it doesn't match perfectly (wrong color or inconstent casing)
 				else if (!existingLabel.Name.Equals(label.Key, StringComparison.Ordinal) || (!existingLabel.Color.Equals(label.Value, StringComparison.Ordinal)))
 				{
-					await githubClient.Issue.Labels.Update("jericho", projectName, existingLabel.Name, new LabelUpdate(label.Key, label.Value)).ConfigureAwait(false);
+					await githubClient.Issue.Labels.Update(ownerName, projectName, existingLabel.Name, new LabelUpdate(label.Key, label.Value)).ConfigureAwait(false);
 					modifiedLabels.Add(label.Key);
 				}
 			}
@@ -265,16 +265,14 @@ namespace RefreshResources
 
 			foreach (var project in PROJECTS)
 			{
-				await CopyResourceFilesToProject(files, project).ConfigureAwait(false);
+				await CopyResourceFilesToProject(files, project.Owner, project.Project).ConfigureAwait(false);
 			}
 		}
 
-		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resoureFiles, string projectName)
+		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resoureFiles, string ownerName, string projectName)
 		{
-			if (string.IsNullOrEmpty(projectName))
-			{
-				throw new ArgumentException("You must specify the name of the project", nameof(projectName));
-			}
+			if (string.IsNullOrEmpty(ownerName)) throw new ArgumentException("You must specify the owner of the project", nameof(ownerName));
+			if (string.IsNullOrEmpty(projectName)) throw new ArgumentException("You must specify the name of the project", nameof(projectName));
 
 			var modifiedFiles = new List<string>();
 
