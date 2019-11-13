@@ -30,6 +30,7 @@ namespace RefreshResources
 		private static readonly string[] PROJECTS = new string[]
 		{
 			"CakeMail.RestClient",
+			"Http-Multipart-Data-Parser",
 			"Picton",
 			"Picton.Messaging",
 			"StrongGrid",
