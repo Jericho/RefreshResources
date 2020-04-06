@@ -2,7 +2,6 @@
 using LibGit2Sharp.Handlers;
 using NuGet.Common;
 using NuGet.Configuration;
-using NuGet.Protocol;
 using NuGet.Protocol.Core.Types;
 using Octokit;
 using System;
