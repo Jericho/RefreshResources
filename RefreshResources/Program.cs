@@ -29,7 +29,7 @@ namespace RefreshResources
 		private static readonly IEnumerable<(string Owner, string Project)> PROJECTS = new List<(string, string)>
 		{
 			( "jericho", "CakeMail.RestClient" ),
-			( "Vodurden", "Http-Multipart-Data-Parser" ),
+			( "Http-Multipart-Data-Parser", "Http-Multipart-Data-Parser" ),
 			( "jericho", "Picton" ),
 			( "jericho", "Picton.Messaging" ),
 			( "jericho", "StrongGrid" ),
