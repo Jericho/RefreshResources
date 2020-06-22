@@ -118,7 +118,7 @@ namespace RefreshResources
 					createdLabels.Add(label.Key);
 				}
 
-				// Update the existing label if it doesn't match perfectly (wrong color or inconstent casing)
+				// Update the existing label if it doesn't match perfectly (wrong color or inconsistent casing)
 				else if (!existingLabel.Name.Equals(label.Key, StringComparison.Ordinal) || (!existingLabel.Color.Equals(label.Value, StringComparison.Ordinal)))
 				{
 					await githubClient.Issue.Labels.Update(ownerName, projectName, existingLabel.Name, new LabelUpdate(label.Key, label.Value)).ConfigureAwait(false);
