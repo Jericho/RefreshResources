@@ -153,16 +153,16 @@ namespace RefreshResources
 
 			//==================================================
 			// STEP 2 - Refresh the gitignore file
-			using (var request = new HttpRequestMessage(HttpMethod.Get, "https://www.gitignore.io/api/visualstudio"))
+			using (var request = new HttpRequestMessage(HttpMethod.Get, "https://www.toptal.com/developers/gitignore/api/visualstudio"))
 			{
 				var response = await httpClient.SendAsync(request).ConfigureAwait(false);
 				var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
 				content = content
 					.Trim('\n')
-					.Replace("# Created by https://www.gitignore.io/api/visualstudio", "# Created with the help of https://www.gitignore.io/api/visualstudio")
-					.Replace("# Cake - Uncomment if you are using it\n# tools/**\n# !tools/packages.config", "# Cake - Uncomment if you are using it\ntools/**\n!tools/packages.config")
-					.Replace("# End of https://www.gitignore.io/api/visualstudio", "# WinMerge\n*.bak\n\n# End of https://www.gitignore.io/api/visualstudio")
+					.Replace("# Created by https://www.toptal.com/developers/gitignore/api/visualstudio", "# Created with the help of https://www.toptal.com/developers/gitignore/api/visualstudio (formerly https://www.gitignore.io/api/visualstudio)")
+					.Replace("# Cake - Uncomment if you are using it\n# tools/**\n# !tools/packages.config", "# Cake\ntools/**\n!tools/packages.config")
+					.Replace("# End of https://www.toptal.com/developers/gitignore/api/visualstudio", "# WinMerge\n*.bak\n\n# End of https://www.toptal.com/developers/gitignore/api/visualstudio")
 					.Replace("\n", "\r\n");
 
 				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content).ConfigureAwait(false);
