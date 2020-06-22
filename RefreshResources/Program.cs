@@ -268,14 +268,14 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resoureFiles, string ownerName, string projectName)
+		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resourceFiles, string ownerName, string projectName)
 		{
 			if (string.IsNullOrEmpty(ownerName)) throw new ArgumentException("You must specify the owner of the project", nameof(ownerName));
 			if (string.IsNullOrEmpty(projectName)) throw new ArgumentException("You must specify the name of the project", nameof(projectName));
 
 			var modifiedFiles = new List<string>();
 
-			foreach (var sourceFile in resoureFiles)
+			foreach (var sourceFile in resourceFiles)
 			{
 				var fileContent = await File.ReadAllTextAsync(sourceFile.FullName).ConfigureAwait(false);
 				var sourceContent = fileContent.Replace("%%PROJECT-NAME%%", projectName);
