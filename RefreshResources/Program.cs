@@ -165,7 +165,7 @@ namespace RefreshResources
 					.Replace("# End of https://www.gitignore.io/api/visualstudio", "# WinMerge\n*.bak\n\n# End of https://www.gitignore.io/api/visualstudio")
 					.Replace("\n", "\r\n");
 
-				File.WriteAllText(Path.Combine(SOURCE_FOLDER, ".gitignore"), content);
+				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content).ConfigureAwait(false);
 			}
 
 			//==================================================
@@ -177,7 +177,7 @@ namespace RefreshResources
 
 				content = content.Replace("\n", Environment.NewLine);
 
-				File.WriteAllText(Path.Combine(SOURCE_FOLDER, "build.ps1"), content);
+				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, "build.ps1"), content).ConfigureAwait(false);
 			}
 
 			//==================================================
@@ -277,8 +277,8 @@ namespace RefreshResources
 
 			foreach (var sourceFile in resoureFiles)
 			{
-				var sourceContent = File.ReadAllText(sourceFile.FullName)
-					.Replace("%%PROJECT-NAME%%", projectName);
+				var fileContent = await File.ReadAllTextAsync(sourceFile.FullName).ConfigureAwait(false);
+				var sourceContent = fileContent.Replace("%%PROJECT-NAME%%", projectName);
 				var destinationName = sourceFile.FullName.Replace(SOURCE_FOLDER, "").Trim('\\');
 				var destinationPath = Path.Combine(ROOT_FOLDER, projectName, destinationName);
 
