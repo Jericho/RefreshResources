@@ -89,6 +89,7 @@ Task("Publish")
 	DotNetCorePublish($"./{appName}.sln", new DotNetCorePublishSettings
 	{
 		Configuration = configuration,
+		NoBuild = true,
 		NoRestore = true,
 		OutputDirectory = publishDir
 	});
