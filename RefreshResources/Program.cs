@@ -40,6 +40,7 @@ namespace RefreshResources
 		{
 			{ "Breaking Change", "b60205" },
 			{ "Bug", "ee0701" },
+			{ "Documentation", "d4c5f9" },
 			{ "duplicate", "cccccc" },
 			{ "help wanted", "128A0C" },
 			{ "Improvement", "84b6eb" },
