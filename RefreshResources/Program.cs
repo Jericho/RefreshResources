@@ -162,9 +162,9 @@ namespace RefreshResources
 				content = content
 					.Trim('\n')
 					.Replace("# Created by https://www.toptal.com/developers/gitignore/api/visualstudio", "# Created with the help of https://www.toptal.com/developers/gitignore/api/visualstudio (formerly https://www.gitignore.io/api/visualstudio)")
-					.Replace("# Cake - Uncomment if you are using it\n# tools/**\n# !tools/packages.config", "# Cake\ntools/**\n!tools/packages.config")
+					.Replace("# Cake - Uncomment if you are using it\n# tools/**\n# !tools/packages.config", "# Cake\ntools/**\nBuildArtifacts/")
 					.Replace("# End of https://www.toptal.com/developers/gitignore/api/visualstudio", "# WinMerge\n*.bak\n\n# End of https://www.toptal.com/developers/gitignore/api/visualstudio")
-					.Replace("\n", "\r\n");
+					.Replace("\n", Environment.NewLine);
 
 				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content).ConfigureAwait(false);
 			}
