@@ -171,7 +171,7 @@ namespace RefreshResources
 
 			//==================================================
 			// STEP 3 - Refresh the Cake bootstrap
-			using (var request = new HttpRequestMessage(HttpMethod.Get, "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-framework/build.ps1"))
+			using (var request = new HttpRequestMessage(HttpMethod.Get, "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1"))
 			{
 				var response = await httpClient.SendAsync(request).ConfigureAwait(false);
 				var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
