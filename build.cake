@@ -91,6 +91,7 @@ Task("Publish")
 		Configuration = configuration,
 		NoBuild = true,
 		NoRestore = true,
+		NoDependencies = true,
 		OutputDirectory = publishDir
 	});
 });
