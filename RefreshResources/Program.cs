@@ -282,12 +282,14 @@ namespace RefreshResources
 				var sourceContent = fileContent.Replace("%%PROJECT-NAME%%", projectName);
 				var destinationName = sourceFile.FullName.Replace(SOURCE_FOLDER, "").Trim('\\');
 				var destinationPath = Path.Combine(ROOT_FOLDER, projectName, destinationName);
+				var destinationFolder = Path.GetDirectoryName(destinationPath);
 
 				var destinationFile = new FileInfo(destinationPath);
 
 				if (!SameContent(sourceContent, destinationFile))
 				{
 					modifiedFiles.Add(destinationName);
+					if (!Directory.Exists(destinationFolder)) Directory.CreateDirectory(destinationFolder);
 					await File.WriteAllTextAsync(destinationPath, sourceContent).ConfigureAwait(false);
 				}
 			}
