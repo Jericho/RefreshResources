@@ -58,44 +58,17 @@ Task("Clean")
 	else CreateDirectory(outputDir);
 });
 
-Task("Restore-NuGet-Packages")
-	.IsDependentOn("Clean")
-	.Does(() =>
-{
-	DotNetCoreRestore("./", new DotNetCoreRestoreSettings
-	{
-		Sources = new [] {
-			"https://api.nuget.org/v3/index.json"
-		}
-	});
-});
-
-Task("Build")
-	.IsDependentOn("Restore-NuGet-Packages")
-	.Does(() =>
-{
-	DotNetCoreBuild($"./{appName}.sln", new DotNetCoreBuildSettings
-	{
-		Configuration = configuration,
-		NoRestore = true
-	});
-});
-
-
 Task("Publish")
-	.IsDependentOn("Build")
+	.IsDependentOn("Clean")
 	.Does(() =>
 {
 	DotNetCorePublish($"./{appName}.sln", new DotNetCorePublishSettings
 	{
 		Configuration = configuration,
-		NoBuild = true,
-		NoRestore = true,
-		NoDependencies = true,
-		OutputDirectory = publishDir
+		OutputDirectory = publishDir,
+		PublishSingleFile = true,
 	});
 });
-
 
 Task("Run")
 	.IsDependentOn("Publish")
