@@ -23,8 +23,8 @@ namespace RefreshResources
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect that nuget allows a much large number of concurrent connections.
 
-		private static readonly Regex AddinReferenceRegex = new Regex("(?<lineprefix>.*?)(?<packageprefix>\\#addin nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
-		private static readonly Regex ToolReferenceRegex = new Regex("(?<lineprefix>.*?)(?<packageprefix>\\#tool nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
+		private static readonly Regex AddinReferenceRegex = new("(?<lineprefix>.*?)(?<packageprefix>\\#addin nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
+		private static readonly Regex ToolReferenceRegex = new("(?<lineprefix>.*?)(?<packageprefix>\\#tool nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
 
 		private static readonly IEnumerable<(string Owner, string Project)> PROJECTS = new List<(string, string)>
 		{
@@ -170,15 +170,24 @@ namespace RefreshResources
 			}
 
 			//==================================================
-			// STEP 3 - Refresh the Cake bootstrap
-			using (var request = new HttpRequestMessage(HttpMethod.Get, "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1"))
+			// STEP 3 - Refresh the Cake bootstrap files
+			var bootstrapFiles = new (string source, bool replaceNewLines)[]
 			{
+				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1", true),
+				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.sh", false)
+			};
+
+			foreach (var (source, replaceNewLines) in bootstrapFiles)
+			{
+				var destinationFileName = Path.GetFileName(source);
+
+				using var request = new HttpRequestMessage(HttpMethod.Get, source);
 				var response = await httpClient.SendAsync(request).ConfigureAwait(false);
 				var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-				content = content.Replace("\n", Environment.NewLine);
+				if (replaceNewLines) content = content.Replace("\n", Environment.NewLine);
 
-				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, "build.ps1"), content).ConfigureAwait(false);
+				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content).ConfigureAwait(false);
 			}
 
 			//==================================================
@@ -226,7 +235,7 @@ namespace RefreshResources
 						}
 					})
 				};
-				repo.Network.Push(repo.Branches["master"], pushOptions);
+				repo.Network.Push(repo.Branches["main"], pushOptions);
 			}
 
 			//==================================================
