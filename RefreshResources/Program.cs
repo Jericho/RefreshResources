@@ -170,14 +170,16 @@ namespace RefreshResources
 			}
 
 			//==================================================
-			// STEP 3 - Refresh the Cake bootstrap files
-			var bootstrapFiles = new (string source, bool replaceNewLines)[]
+			// STEP 3 - Refresh other files such as the Cake bootstraps, dotnet install scripts, etc
+			var bootstrapFiles = new (string source, string desiredLineEnding)[]
 			{
-				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1", true),
-				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.sh", false)
+				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1", "\r\n"),
+				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.sh", "\n"),
+				//( "https://dot.net/v1/dotnet-install.ps1", "\r\n"),
+				//( "https://dot.net/v1/dotnet-install.sh", "\n")
 			};
 
-			foreach (var (source, replaceNewLines) in bootstrapFiles)
+			foreach (var (source, desiredLineEnding) in bootstrapFiles)
 			{
 				var destinationFileName = Path.GetFileName(source);
 
@@ -185,7 +187,9 @@ namespace RefreshResources
 				var response = await httpClient.SendAsync(request).ConfigureAwait(false);
 				var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
 
-				if (replaceNewLines) content = content.Replace("\n", Environment.NewLine);
+				content = content
+					.Replace("\r\n", "\n")
+					.Replace("\n", desiredLineEnding);
 
 				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content).ConfigureAwait(false);
 			}
