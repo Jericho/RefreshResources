@@ -24,7 +24,7 @@ namespace RefreshResources
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect that nuget allows a much large number of concurrent connections.
 
 		private static readonly Regex AddinReferenceRegex = new("(?<lineprefix>.*?)(?<packageprefix>\\#addin nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
-		private static readonly Regex ToolReferenceRegex = new("(?<lineprefix>.*?)(?<packageprefix>\\#tool nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
+		private static readonly Regex ToolReferenceRegex = new("(?<lineprefix>.*?)(?<packageprefix>\\#tool (nuget|dotnet):\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
 
 		private static readonly IEnumerable<(string Owner, string Project)> PROJECTS = new List<(string, string)>
 		{
@@ -174,9 +174,7 @@ namespace RefreshResources
 			var bootstrapFiles = new (string source, string desiredLineEnding)[]
 			{
 				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1", "\r\n"),
-				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.sh", "\n"),
-				//( "https://dot.net/v1/dotnet-install.ps1", "\r\n"),
-				//( "https://dot.net/v1/dotnet-install.sh", "\n")
+				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.sh", "\n")
 			};
 
 			foreach (var (source, desiredLineEnding) in bootstrapFiles)
