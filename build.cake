@@ -62,7 +62,7 @@ Task("Publish")
 	.IsDependentOn("Clean")
 	.Does(() =>
 {
-	DotNetCorePublish($"./{appName}.sln", new DotNetCorePublishSettings
+	DotNetPublish($"./{appName}.sln", new DotNetPublishSettings
 	{
 		Configuration = configuration,
 		OutputDirectory = publishDir,
