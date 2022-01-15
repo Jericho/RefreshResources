@@ -36,20 +36,20 @@ namespace RefreshResources
 			( "jericho", "ZoomNet" )
 		};
 
-		private static readonly IDictionary<string, string> LABELS = new Dictionary<string, string>
+		private static readonly IEnumerable<(string Name, string Color, string Description)> LABELS = new List<(string, string, string)>
 		{
-			{ "Breaking Change", "b60205" },
-			{ "Bug", "ee0701" },
-			{ "Documentation", "d4c5f9" },
-			{ "duplicate", "cccccc" },
-			{ "help wanted", "128A0C" },
-			{ "Improvement", "84b6eb" },
-			{ "in progress", "b60205" },
-			{ "invalid", "e6e6e6" },
-			{ "New Feature", "0052cc" },
-			{ "on hold", "e99695" },
-			{ "question", "cc317c" },
-			{ "wontfix", "ffffff" }
+			( "Breaking Change", "b60205", "This change causes backward compatibility issue(s)" ),
+			( "Bug", "d73a4a", "This change resolves a defect" ),
+			( "Documentation", "0075ca", "Improvements or additions to documentation" ),
+			( "duplicate", "cfd3d7", "This issue or pull request already exists" ),
+			( "Enhancement", "a2eeef", "New feature or request" ),
+			( "good first issue", "7057ff", "Good for newcomers" ),
+			( "help wanted", "008672", "Extra attention is needed" ),
+			( "in progress", "b60205", "Someone is working on this" ),
+			( "invalid", "e4e669", "This doesn't seem right" ),
+			( "on hold", "e99695", "This will not be worked on until further notice" ),
+			( "question", "d876e3", "Someone is asking a question" ),
+			( "wontfix", "ffffff", "This will not be worked on" )
 		};
 
 		private static readonly string GITHUB_TOKEN = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
@@ -102,7 +102,7 @@ namespace RefreshResources
 
 		private static async Task RefreshGithubLabels(IGitHubClient githubClient, string ownerName, string projectName)
 		{
-			var labels = await githubClient.Issue.Labels.GetAllForRepository(ownerName, projectName).ConfigureAwait(false);
+			var existingLabels = await githubClient.Issue.Labels.GetAllForRepository(ownerName, projectName).ConfigureAwait(false);
 
 			var createdLabels = new List<string>();
 			var modifiedLabels = new List<string>();
@@ -110,20 +110,36 @@ namespace RefreshResources
 			foreach (var label in LABELS)
 			{
 				// Perform case-insensitive search
-				var existingLabel = labels.FirstOrDefault(l => l.Name.Equals(label.Key, StringComparison.OrdinalIgnoreCase));
+				var existingLabel = existingLabels.FirstOrDefault(l => l.Name.Equals(label.Name, StringComparison.OrdinalIgnoreCase));
 
 				// Create label if it doesn't already exist
 				if (existingLabel == null)
 				{
-					await githubClient.Issue.Labels.Create(ownerName, projectName, new NewLabel(label.Key, label.Value)).ConfigureAwait(false);
-					createdLabels.Add(label.Key);
+					var newLabel = new NewLabel(label.Name, label.Color)
+					{
+						Description = label.Description
+					};
+
+					await githubClient.Issue.Labels.Create(ownerName, projectName, newLabel).ConfigureAwait(false);
+					createdLabels.Add(label.Name);
 				}
 
-				// Update the existing label if it doesn't match perfectly (wrong color or inconsistent casing)
-				else if (!existingLabel.Name.Equals(label.Key, StringComparison.Ordinal) || (!existingLabel.Color.Equals(label.Value, StringComparison.Ordinal)))
+				// Update the existing label if it doesn't match what's expected
+				else
 				{
-					await githubClient.Issue.Labels.Update(ownerName, projectName, existingLabel.Name, new LabelUpdate(label.Key, label.Value)).ConfigureAwait(false);
-					modifiedLabels.Add(label.Key);
+					var nameMatches = existingLabel.Name.Equals(label.Name, StringComparison.Ordinal);
+					var colorMatches = existingLabel.Color.Equals(label.Color, StringComparison.Ordinal);
+					var descriptionMatches = string.IsNullOrEmpty(label.Description) || (existingLabel.Description?.Equals(label.Description, StringComparison.Ordinal) ?? false);
+
+					if (!nameMatches || !colorMatches || !descriptionMatches)
+					{
+						var labelUpdate = new LabelUpdate(label.Name, label.Color)
+						{
+							Description = label.Description
+						};
+						await githubClient.Issue.Labels.Update(ownerName, projectName, existingLabel.Name, labelUpdate).ConfigureAwait(false);
+						modifiedLabels.Add(label.Name);
+					}
 				}
 			}
 
