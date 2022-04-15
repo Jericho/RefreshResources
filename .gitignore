@@ -331,6 +331,7 @@ __pycache__/
 
 # Cake
 tools/**
+.cake/**
 BuildArtifacts/
 
 # Tabs Studio
