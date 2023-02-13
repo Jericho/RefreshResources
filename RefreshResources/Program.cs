@@ -1,4 +1,4 @@
-﻿using LibGit2Sharp;
+using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
 using NuGet.Common;
 using NuGet.Configuration;
@@ -17,14 +17,11 @@ using System.Web;
 
 namespace RefreshResources
 {
-	class Program
+	partial class Program
 	{
 		private const string ROOT_FOLDER = "D:\\_build\\";
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect that nuget allows a much large number of concurrent connections.
-
-		private static readonly Regex AddinReferenceRegex = new("(?<lineprefix>.*?)(?<packageprefix>\\#addin nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
-		private static readonly Regex ToolReferenceRegex = new("(?<lineprefix>.*?)(?<packageprefix>\\#tool (nuget|dotnet):\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Compiled | RegexOptions.Multiline);
 
 		private static readonly IEnumerable<(string Owner, string Project)> PROJECTS = new List<(string, string)>
 		{
@@ -216,16 +213,16 @@ namespace RefreshResources
 			var buildScriptContent = await File.ReadAllTextAsync(buildScriptFilePath).ConfigureAwait(false);
 			buildScriptContent = buildScriptContent.Replace(Environment.NewLine, "\n");  // '\n' is the EOL for regex 
 
-			var addinsMatchResults = AddinReferenceRegex.Matches(buildScriptContent);
-			var toolsMatchResults = ToolReferenceRegex.Matches(buildScriptContent);
+			var addinsMatchResults = AddinReferenceRegex().Matches(buildScriptContent);
+			var toolsMatchResults = ToolReferenceRegex().Matches(buildScriptContent);
 
 			var addinsReferencesInfo = await addinsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
 			var toolsReferencesInfo = await toolsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
 
 			var referencesInfo = addinsReferencesInfo.Union(toolsReferencesInfo).OrderBy(r => r.Name).ToArray();
 
-			var updatedBuildScriptContent = AddinReferenceRegex.Replace(buildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
-			updatedBuildScriptContent = ToolReferenceRegex.Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
+			var updatedBuildScriptContent = AddinReferenceRegex().Replace(buildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
+			updatedBuildScriptContent = ToolReferenceRegex().Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
 			updatedBuildScriptContent = updatedBuildScriptContent.Replace("\n", Environment.NewLine);
 
 			await File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent).ConfigureAwait(false);
@@ -349,7 +346,7 @@ namespace RefreshResources
 
 			var subFolders = Directory
 				.EnumerateDirectories(directory)
-				.Where(d => !(new DirectoryInfo(d)).Attributes.HasFlag(FileAttributes.Hidden));
+				.Where(d => !new DirectoryInfo(d).Attributes.HasFlag(FileAttributes.Hidden));
 
 			foreach (var subFolder in subFolders)
 			{
@@ -439,5 +436,10 @@ namespace RefreshResources
 
 			return newContent.ToString();
 		}
+
+		[GeneratedRegex("(?<lineprefix>.*?)(?<packageprefix>\\#addin nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Multiline | RegexOptions.Compiled)]
+		private static partial Regex AddinReferenceRegex();
+		[GeneratedRegex("(?<lineprefix>.*?)(?<packageprefix>\\#tool (nuget|dotnet):\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Multiline | RegexOptions.Compiled)]
+		private static partial Regex ToolReferenceRegex();
 	}
 }
