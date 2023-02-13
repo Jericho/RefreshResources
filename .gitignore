@@ -330,8 +330,8 @@ __pycache__/
 *.pyc
 
 # Cake
-tools/**
 .cake/**
+tools/**
 BuildArtifacts/
 
 # Tabs Studio
