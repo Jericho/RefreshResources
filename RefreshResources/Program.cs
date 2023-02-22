@@ -30,7 +30,7 @@ namespace RefreshResources
 			( "jericho", "Picton.Messaging" ),
 			( "jericho", "StrongGrid" ),
 			( "jericho", "ZoomNet" ),
-			( "jericho", "ZoomNet.AzureTokenManagementStrategies" ),
+			( "jericho", "ZoomNet.TokenRepositories.Azure" ),
 		};
 
 		private static readonly IEnumerable<(string Name, string Color, string Description)> LABELS = new List<(string, string, string)>
