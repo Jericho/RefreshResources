@@ -14,7 +14,6 @@ var configuration = Argument<string>("configuration", "Release");
 var appName = "RefreshResources";
 
 var outputDir = "./artifacts/";
-var publishDir = $"{outputDir}Publish/";
 
 var cakeVersion = typeof(ICakeContext).Assembly.GetName().Version.ToString();
 
@@ -62,10 +61,10 @@ Task("Publish")
 	.IsDependentOn("Clean")
 	.Does(() =>
 {
-	DotNetPublish($"./{appName}.sln", new DotNetPublishSettings
+	DotNetPublish($"./{appName}/{appName}.csproj", new DotNetPublishSettings
 	{
 		Configuration = configuration,
-		OutputDirectory = publishDir,
+		OutputDirectory = outputDir,
 		PublishSingleFile = true,
 	});
 });
@@ -75,7 +74,7 @@ Task("Run")
 	.Does(() =>
 {
 	var processResult = StartProcess(
-		new FilePath($"{publishDir}{appName}.exe"),
+		new FilePath($"{outputDir}{appName}.exe"),
 		new ProcessSettings()
 		{
 			Arguments = "nopause"
