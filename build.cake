@@ -64,8 +64,8 @@ Task("Publish")
 	DotNetPublish($"./{appName}.sln", new DotNetPublishSettings
 	{
 		Configuration = configuration,
-		OutputDirectory = outputDir,
 		PublishSingleFile = true,
+		ArgumentCustomization = args => args.Append($"--property:PublishDir={MakeAbsolute(Directory(outputDir))}")
 	});
 });
 
