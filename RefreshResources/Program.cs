@@ -1,3 +1,4 @@
+using HtmlAgilityPack;
 using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
 using NuGet.Common;
@@ -10,6 +11,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -145,7 +147,7 @@ namespace RefreshResources
 			if (!createdLabels.Any() && !modifiedLabels.Any()) Console.WriteLine($"{projectName}: All labels already up to date");
 		}
 
-		private static async Task RefreshResourcesAsync()
+		private static async Task RefreshResourcesAsync(CancellationToken cancellationToken = default)
 		{
 			var repo = new LibGit2Sharp.Repository(SOURCE_FOLDER);
 			var author = repo.Config.BuildSignature(DateTimeOffset.Now);
@@ -228,7 +230,45 @@ namespace RefreshResources
 
 
 			//==================================================
-			// STEP 5 - Commit the changes (if any)
+			// STEP 5 - Get the latest version of the .NET SDK
+			var htmlParser = new HtmlWeb();
+			var htmlDoc = await htmlParser.LoadFromWebAsync("https://dotnet.microsoft.com/en-us/download/dotnet/7.0", cancellationToken).ConfigureAwait(false);
+			var latestSdkVersion = htmlDoc.DocumentNode
+				.SelectNodes("//h3")
+				.Where(node => node.Id.StartsWith("sdk-7", StringComparison.OrdinalIgnoreCase))
+				.Select(node => SemVersion.Parse(node.InnerText.Replace("SDK ", string.Empty)))
+				.OrderByDescending(version => version)
+				.First();
+
+			var globalJsonFilePath = Path.Combine(SOURCE_FOLDER, "global.json");
+			string currentGlobalJsonContent;
+
+			using (var sr = new StreamReader(globalJsonFilePath))
+			{
+				currentGlobalJsonContent = await sr.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+			}
+
+			var currentSdkInfo = Extensions.DeserializeAnonymousType(currentGlobalJsonContent, new { sdk = new { version = "", rollForward = "", allowPrerelease = false } });
+
+			var updatedSdkInfo = new
+			{
+				sdk = new
+				{
+					version = latestSdkVersion.ToString(),
+					currentSdkInfo.sdk.rollForward,
+					currentSdkInfo.sdk.allowPrerelease
+				}
+			};
+
+			var updatedGlobalJsonContent = JsonSerializer.Serialize(updatedSdkInfo, new JsonSerializerOptions() { WriteIndented = true });
+			using (var sw = new StreamWriter(globalJsonFilePath))
+			{
+				await sw.WriteAsync(updatedGlobalJsonContent).ConfigureAwait(false);
+			}
+
+
+			//==================================================
+			// STEP 6 - Commit the changes (if any)
 			var changes = repo.Diff.Compare<TreeChanges>();
 			if (changes.Any())
 			{
