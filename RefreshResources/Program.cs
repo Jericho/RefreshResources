@@ -25,14 +25,30 @@ namespace RefreshResources
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much large number of concurrent connections.
 
-		private static readonly IEnumerable<(string Owner, string Project)> PROJECTS = new List<(string, string)>
+		private static readonly Regex _addinReferenceRegex = new Regex(string.Format(ADDIN_REFERENCE_REGEX, "addin"), RegexOptions.Compiled | RegexOptions.Multiline);
+		private static readonly Regex _toolReferenceRegex = new Regex(string.Format(ADDIN_REFERENCE_REGEX, "tool"), RegexOptions.Compiled | RegexOptions.Multiline);
+		private static readonly Regex _loadReferenceRegex = new Regex(string.Format(ADDIN_REFERENCE_REGEX, "(load|l)"), RegexOptions.Compiled | RegexOptions.Multiline);
+
+		private const string ADDIN_REFERENCE_REGEX = "(?<lineprefix>.*)(?<packageprefix>\\#{0}) (?<scheme>(nuget|dotnet)):(?<separator1>\"?)(?<packagerepository>.*)\\?(?<referencestring>.*?(?=(?:[\"| ])|$))(?<separator2>\"?)(?<separator3> ?)(?<linepostfix>.*?$)";
+
+		private enum ProjectType
 		{
-			( "Http-Multipart-Data-Parser", "Http-Multipart-Data-Parser" ),
-			( "jericho", "Picton" ),
-			( "jericho", "Picton.Messaging" ),
-			( "jericho", "StrongGrid" ),
-			( "jericho", "ZoomNet" ),
-			( "jericho", "ZoomNet.TokenRepositories.Azure" ),
+			Library,
+			CakeAddin
+		}
+
+		private static readonly IEnumerable<(string Owner, string ProjectName, ProjectType ProjectType)> PROJECTS = new List<(string, string, ProjectType)>
+		{
+			( "Http-Multipart-Data-Parser", "Http-Multipart-Data-Parser", ProjectType.Library),
+			( "jericho", "Picton", ProjectType.Library),
+			( "jericho", "Picton.Messaging", ProjectType.Library),
+			( "jericho", "StrongGrid", ProjectType.Library),
+			( "jericho", "ZoomNet", ProjectType.Library),
+			( "jericho", "ZoomNet.TokenRepositories.Azure", ProjectType.Library),
+			( "cake-contrib", "Cake.Email.Common", ProjectType.CakeAddin),
+			( "cake-contrib", "Cake.Email", ProjectType.CakeAddin),
+			( "cake-contrib", "Cake.CakeMail", ProjectType.CakeAddin),
+			( "cake-contrib", "Cake.SendGrid", ProjectType.CakeAddin),
 		};
 
 		private static readonly IEnumerable<(string Name, string Color, string Description)> LABELS = new List<(string, string, string)>
@@ -95,7 +111,7 @@ namespace RefreshResources
 
 			foreach (var project in PROJECTS)
 			{
-				await RefreshGithubLabels(githubClient, project.Owner, project.Project).ConfigureAwait(false);
+				await RefreshGithubLabels(githubClient, project.Owner, project.ProjectName).ConfigureAwait(false);
 			}
 		}
 
@@ -214,16 +230,22 @@ namespace RefreshResources
 			var buildScriptContent = await File.ReadAllTextAsync(buildScriptFilePath).ConfigureAwait(false);
 			buildScriptContent = buildScriptContent.Replace(Environment.NewLine, "\n");  // '\n' is the EOL for regex 
 
-			var addinsMatchResults = AddinReferenceRegex().Matches(buildScriptContent);
-			var toolsMatchResults = ToolReferenceRegex().Matches(buildScriptContent);
+			var addinsMatchResults = _addinReferenceRegex.Matches(buildScriptContent);
+			var toolsMatchResults = _toolReferenceRegex.Matches(buildScriptContent);
+			var loadsMatchResults = _loadReferenceRegex.Matches(buildScriptContent);
 
 			var addinsReferencesInfo = await addinsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
 			var toolsReferencesInfo = await toolsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
+			var loadsReferencesInfo = await loadsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
 
-			var referencesInfo = addinsReferencesInfo.Union(toolsReferencesInfo).OrderBy(r => r.Name).ToArray();
+			var referencesInfo = addinsReferencesInfo
+				.Union(toolsReferencesInfo)
+				.Union(loadsReferencesInfo)
+				.OrderBy(r => r.Name).ToArray();
 
-			var updatedBuildScriptContent = AddinReferenceRegex().Replace(buildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
-			updatedBuildScriptContent = ToolReferenceRegex().Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
+			var updatedBuildScriptContent = _addinReferenceRegex.Replace(buildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
+			updatedBuildScriptContent = _toolReferenceRegex.Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
+			updatedBuildScriptContent = _loadReferenceRegex.Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
 			updatedBuildScriptContent = updatedBuildScriptContent.Replace("\n", Environment.NewLine);
 
 			await File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent).ConfigureAwait(false);
@@ -329,23 +351,54 @@ namespace RefreshResources
 
 			foreach (var project in PROJECTS)
 			{
-				await CopyResourceFilesToProject(files, project.Owner, project.Project).ConfigureAwait(false);
+				var filesForThisProject = files
+					.Where(fi => !(fi.Name.Equals("recipe.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
+					.Where(fi => !(fi.Name.Equals("build.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
+					.ToArray();
+
+				await CopyResourceFilesToProject(filesForThisProject, project).ConfigureAwait(false);
 			}
 		}
 
-		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resourceFiles, string ownerName, string projectName)
+		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resourceFiles, (string Owner, string ProjectName, ProjectType ProjectType) project)
 		{
-			if (string.IsNullOrEmpty(ownerName)) throw new ArgumentException("You must specify the owner of the project", nameof(ownerName));
-			if (string.IsNullOrEmpty(projectName)) throw new ArgumentException("You must specify the name of the project", nameof(projectName));
+			if (string.IsNullOrEmpty(project.Owner)) throw new ArgumentException("You must specify the owner of the project", nameof(project.Owner));
+			if (string.IsNullOrEmpty(project.ProjectName)) throw new ArgumentException("You must specify the name of the project", nameof(project.ProjectName));
+
+			var buildTargetName = project.ProjectType switch
+			{
+				ProjectType.Library => "AppVeyor",
+				ProjectType.CakeAddin => "CI",
+				_ => throw new Exception("Unknown project type")
+			};
+
+			var cakeScriptFileName = project.ProjectType switch
+			{
+				ProjectType.Library => "build.cake",
+				ProjectType.CakeAddin => "recipe.cake",
+				_ => throw new Exception("Unknown project type")
+			};
+
+			var buildCakeVersion = project.ProjectType switch
+			{
+				ProjectType.Library => "3.1.0",
+				ProjectType.CakeAddin => "1.3.0",
+				_ => throw new Exception("Unknown project type")
+			};
 
 			var modifiedFiles = new List<string>();
 
 			foreach (var sourceFile in resourceFiles)
 			{
 				var fileContent = await File.ReadAllTextAsync(sourceFile.FullName).ConfigureAwait(false);
-				var sourceContent = fileContent.Replace("%%PROJECT-NAME%%", projectName);
+				var sourceContent = fileContent
+					.Replace("%%PROJECT-NAME%%", project.ProjectName)
+					.Replace("%%BUILD-TARGET-NAME%%", buildTargetName)
+					.Replace("%%CAKE-SCRIPT-FILENAME%%", cakeScriptFileName)
+					.Replace("%%BUILD-CAKE-VERSION%%", buildCakeVersion);
+
 				var destinationName = sourceFile.FullName.Replace(SOURCE_FOLDER, "").Trim('\\');
-				var destinationPath = Path.Combine(ROOT_FOLDER, projectName, destinationName);
+				var destinationPath = Path.Combine(ROOT_FOLDER, project.ProjectName, destinationName);
 				var destinationFolder = Path.GetDirectoryName(destinationPath);
 
 				var destinationFile = new FileInfo(destinationPath);
@@ -360,11 +413,11 @@ namespace RefreshResources
 
 			if (modifiedFiles.Any())
 			{
-				Console.WriteLine($"{projectName} " + string.Join(", ", modifiedFiles));
+				Console.WriteLine($"{project.ProjectName} " + string.Join(", ", modifiedFiles));
 			}
 			else
 			{
-				Console.WriteLine($"{projectName}: All files already up to date");
+				Console.WriteLine($"{project.ProjectName}: All files already up to date");
 			}
 		}
 
@@ -475,10 +528,5 @@ namespace RefreshResources
 
 			return newContent.ToString();
 		}
-
-		[GeneratedRegex("(?<lineprefix>.*?)(?<packageprefix>\\#addin nuget:\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Multiline | RegexOptions.Compiled)]
-		private static partial Regex AddinReferenceRegex();
-		[GeneratedRegex("(?<lineprefix>.*?)(?<packageprefix>\\#tool (nuget|dotnet):\\?)(?<referencestring>.*?(?=(?:\")|$))(?<linepostfix>.*)", RegexOptions.Multiline | RegexOptions.Compiled)]
-		private static partial Regex ToolReferenceRegex();
 	}
 }
