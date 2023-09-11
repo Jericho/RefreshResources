@@ -511,19 +511,24 @@ namespace RefreshResources
 			var loadDependencies = parameters["loaddependencies"];
 			var include = parameters["include"];
 			var exclude = parameters["exclude"];
-			var prerelease = parameters.AllKeys.Contains("prerelease");
+			var prerelease = (parameters.AllKeys?.Contains("prerelease") ?? false) || (parameters.GetValues(null)?.Contains("prerelease") ?? false);
 
 			var packageLatestVersion = referencesInfo.First(r => r.Name == packageName).LatestVersion;
 
 			var newContent = new StringBuilder();
 			newContent.Append(match.Groups["lineprefix"].Value);
 			newContent.Append(match.Groups["packageprefix"].Value);
-			newContent.AppendFormat("package={0}", packageName);
+			newContent.AppendFormat(" {0}:", match.Groups["scheme"].Value);
+			newContent.Append(match.Groups["separator1"].Value);
+			newContent.Append(match.Groups["packagerepository"].Value);
+			newContent.AppendFormat("?package={0}", packageName);
 			newContent.AppendFormat("&version={0}", packageLatestVersion);
 			if (!string.IsNullOrEmpty(loadDependencies)) newContent.AppendFormat("&loaddependencies={0}", loadDependencies);
 			if (!string.IsNullOrEmpty(include)) newContent.AppendFormat("&include={0}", include);
 			if (!string.IsNullOrEmpty(exclude)) newContent.AppendFormat("&exclude={0}", exclude);
 			if (prerelease) newContent.Append("&prerelease");
+			newContent.Append(match.Groups["separator2"].Value);
+			newContent.Append(match.Groups["separator3"].Value);
 			newContent.Append(match.Groups["linepostfix"].Value);
 
 			return newContent.ToString();
