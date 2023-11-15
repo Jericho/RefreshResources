@@ -204,8 +204,8 @@ namespace RefreshResources
 			// STEP 3 - Refresh other files such as the Cake bootstraps, dotnet install scripts, etc
 			var bootstrapFiles = new (string source, string desiredLineEnding)[]
 			{
-				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1", "\r\n"),
-				( "https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.sh", "\n")
+				("https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1", "\r\n"),
+				("https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.sh", "\n")
 			};
 
 			foreach (var (source, desiredLineEnding) in bootstrapFiles)
@@ -254,10 +254,10 @@ namespace RefreshResources
 			//==================================================
 			// STEP 5 - Get the latest version of the .NET SDK
 			var htmlParser = new HtmlWeb();
-			var htmlDoc = await htmlParser.LoadFromWebAsync("https://dotnet.microsoft.com/en-us/download/dotnet/7.0", cancellationToken).ConfigureAwait(false);
+			var htmlDoc = await htmlParser.LoadFromWebAsync("https://dotnet.microsoft.com/en-us/download/dotnet/8.0", cancellationToken).ConfigureAwait(false);
 			var latestSdkVersion = htmlDoc.DocumentNode
 				.SelectNodes("//h3")
-				.Where(node => node.Id.StartsWith("sdk-7", StringComparison.OrdinalIgnoreCase))
+				.Where(node => node.Id.StartsWith("sdk-8", StringComparison.OrdinalIgnoreCase))
 				.Select(node => SemVersion.Parse(node.InnerText.Replace("SDK ", string.Empty)))
 				.OrderByDescending(version => version)
 				.First();
