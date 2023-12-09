@@ -12,7 +12,7 @@ namespace RefreshResources
 	internal sealed class SemVersion : IComparable<SemVersion>, IComparable
 	{
 		private static readonly Regex PARSE_REGEX =
-			new Regex(
+			new(
 				@"^(?<major>\d+)" +
 				@"(\.(?<minor>\d+))?" +
 				@"(\.(?<patch>\d+))?" +
@@ -49,8 +49,7 @@ namespace RefreshResources
 		/// </remarks>
 		public SemVersion(Version version)
 		{
-			if (version == null)
-				throw new ArgumentNullException("version");
+			ArgumentNullException.ThrowIfNull(version, nameof(version));
 
 			this.Major = version.Major;
 			this.Minor = version.Minor;
@@ -71,8 +70,7 @@ namespace RefreshResources
 			if (string.IsNullOrEmpty(version)) return null;
 
 			var match = PARSE_REGEX.Match(version);
-			if (!match.Success)
-				throw new ArgumentException("Invalid version.", "version");
+			if (!match.Success) throw new ArgumentException("Invalid version.", nameof(version));
 
 			var major = int.Parse(match.Groups["major"].Value, CultureInfo.InvariantCulture);
 

@@ -24,9 +24,9 @@ namespace RefreshResources
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much large number of concurrent connections.
 
-		private static readonly Regex _addinReferenceRegex = new Regex(string.Format(ADDIN_REFERENCE_REGEX, "addin"), RegexOptions.Compiled | RegexOptions.Multiline);
-		private static readonly Regex _toolReferenceRegex = new Regex(string.Format(ADDIN_REFERENCE_REGEX, "tool"), RegexOptions.Compiled | RegexOptions.Multiline);
-		private static readonly Regex _loadReferenceRegex = new Regex(string.Format(ADDIN_REFERENCE_REGEX, "(load|l)"), RegexOptions.Compiled | RegexOptions.Multiline);
+		private static readonly Regex _addinReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "addin"), RegexOptions.Compiled | RegexOptions.Multiline);
+		private static readonly Regex _toolReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "tool"), RegexOptions.Compiled | RegexOptions.Multiline);
+		private static readonly Regex _loadReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "(load|l)"), RegexOptions.Compiled | RegexOptions.Multiline);
 
 		private const string ADDIN_REFERENCE_REGEX = "(?<lineprefix>.*)(?<packageprefix>\\#{0}) (?<scheme>(nuget|dotnet)):(?<separator1>\"?)(?<packagerepository>.*)\\?(?<referencestring>.*?(?=(?:[\"| ])|$))(?<separator2>\"?)(?<separator3> ?)(?<linepostfix>.*?$)";
 
@@ -157,9 +157,9 @@ namespace RefreshResources
 				}
 			}
 
-			if (createdLabels.Any()) Console.WriteLine($"{projectName} added: " + string.Join(", ", createdLabels));
-			if (modifiedLabels.Any()) Console.WriteLine($"{projectName} modified: " + string.Join(", ", modifiedLabels));
-			if (!createdLabels.Any() && !modifiedLabels.Any()) Console.WriteLine($"{projectName}: All labels already up to date");
+			if (createdLabels.Count > 0) Console.WriteLine($"{projectName} added: " + string.Join(", ", createdLabels));
+			if (modifiedLabels.Count > 0) Console.WriteLine($"{projectName} modified: " + string.Join(", ", modifiedLabels));
+			if (createdLabels.Count == 0 && modifiedLabels.Count == 0) Console.WriteLine($"{projectName}: All labels already up to date");
 		}
 
 		private static async Task RefreshResourcesAsync(CancellationToken cancellationToken = default)
@@ -220,7 +220,7 @@ namespace RefreshResources
 			// STEP 4 - Make sure the addins referenced in the build script are up to date
 			var buildScriptFilePath = Path.Combine(SOURCE_FOLDER, "build.cake");
 
-			var buildScriptContent = await File.ReadAllTextAsync(buildScriptFilePath).ConfigureAwait(false);
+			var buildScriptContent = await File.ReadAllTextAsync(buildScriptFilePath, cancellationToken).ConfigureAwait(false);
 			buildScriptContent = buildScriptContent.Replace(Environment.NewLine, "\n");  // '\n' is the EOL for regex 
 
 			var addinsMatchResults = _addinReferenceRegex.Matches(buildScriptContent);
@@ -241,7 +241,7 @@ namespace RefreshResources
 			updatedBuildScriptContent = _loadReferenceRegex.Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
 			updatedBuildScriptContent = updatedBuildScriptContent.Replace("\n", Environment.NewLine);
 
-			await File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent).ConfigureAwait(false);
+			await File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent, cancellationToken).ConfigureAwait(false);
 
 
 			//==================================================
@@ -355,8 +355,8 @@ namespace RefreshResources
 
 		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resourceFiles, (string Owner, string ProjectName, ProjectType ProjectType) project)
 		{
-			if (string.IsNullOrEmpty(project.Owner)) throw new ArgumentException("You must specify the owner of the project", nameof(project.Owner));
-			if (string.IsNullOrEmpty(project.ProjectName)) throw new ArgumentException("You must specify the name of the project", nameof(project.ProjectName));
+			if (string.IsNullOrEmpty(project.Owner)) throw new ArgumentException("You must specify the owner of the project", $"{nameof(project)}.{nameof(project.Owner)}");
+			if (string.IsNullOrEmpty(project.ProjectName)) throw new ArgumentException("You must specify the name of the project", $"{nameof(project)}.{nameof(project.ProjectName)}");
 
 			var buildTargetName = project.ProjectType switch
 			{
@@ -404,7 +404,7 @@ namespace RefreshResources
 				}
 			}
 
-			if (modifiedFiles.Any())
+			if (modifiedFiles.Count > 0)
 			{
 				Console.WriteLine($"{project.ProjectName} " + string.Join(", ", modifiedFiles));
 			}
