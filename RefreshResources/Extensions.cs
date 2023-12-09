@@ -63,5 +63,16 @@ namespace RefreshResources
 
 		public static ValueTask<TValue> DeserializeAnonymousTypeAsync<TValue>(Stream stream, TValue anonymousTypeObject, JsonSerializerOptions options = default, CancellationToken cancellationToken = default)
 			=> JsonSerializer.DeserializeAsync<TValue>(stream, options, cancellationToken);
+
+		/// <summary>
+		/// Ensure that a string ends with a given suffix.
+		/// </summary>
+		/// <param name="value">The value.</param>
+		/// <param name="suffix">The sufix.</param>
+		/// <returns>The value including the suffix.</returns>
+		public static string EnsureEndsWith(this string value, string suffix)
+		{
+			return !string.IsNullOrEmpty(value) && value.EndsWith(suffix) ? value : string.Concat(value, suffix);
+		}
 	}
 }

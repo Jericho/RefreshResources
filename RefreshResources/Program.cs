@@ -1,9 +1,8 @@
 using HtmlAgilityPack;
 using LibGit2Sharp;
-using LibGit2Sharp.Handlers;
 using NuGet.Common;
-using NuGet.Configuration;
 using NuGet.Protocol.Core.Types;
+using NuGet.Versioning;
 using Octokit;
 using System;
 using System.Collections.Generic;
@@ -169,12 +168,6 @@ namespace RefreshResources
 			var author = repo.Config.BuildSignature(DateTimeOffset.Now);
 			var httpClient = new HttpClient();
 
-			var providers = new List<Lazy<INuGetResourceProvider>>();
-			providers.AddRange(NuGet.Protocol.Core.Types.Repository.Provider.GetCoreV3());  // Add v3 API support
-			var packageSource = new PackageSource("https://api.nuget.org/v3/index.json");
-			var sourceRepository = new SourceRepository(packageSource, providers);
-			var nugetPackageMetadataClient = sourceRepository.GetResource<PackageMetadataResource>();
-
 			//==================================================
 			// STEP 1 - Git pull in case there are some changes in the GitHub repo that have not been pulled (this would be very surprising, but better safe than sorry)
 			var pullOptions = new PullOptions()
@@ -201,7 +194,7 @@ namespace RefreshResources
 			}
 
 			//==================================================
-			// STEP 3 - Refresh other files such as the Cake bootstraps, dotnet install scripts, etc
+			// STEP 3 - Refresh other files (such as the dotnet install scripts for example)
 			var bootstrapFiles = new (string source, string desiredLineEnding)[]
 			{
 				("https://raw.githubusercontent.com/cake-build/resources/master/dotnet-tool/build.ps1", "\r\n"),
@@ -234,9 +227,9 @@ namespace RefreshResources
 			var toolsMatchResults = _toolReferenceRegex.Matches(buildScriptContent);
 			var loadsMatchResults = _loadReferenceRegex.Matches(buildScriptContent);
 
-			var addinsReferencesInfo = await addinsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
-			var toolsReferencesInfo = await toolsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
-			var loadsReferencesInfo = await loadsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, nugetPackageMetadataClient).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
+			var addinsReferencesInfo = await addinsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
+			var toolsReferencesInfo = await toolsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
+			var loadsReferencesInfo = await loadsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
 
 			var referencesInfo = addinsReferencesInfo
 				.Union(toolsReferencesInfo)
@@ -465,9 +458,10 @@ namespace RefreshResources
 			return areEqual;
 		}
 
-		private static async Task<string> GetLatestNugetPackageVersion(string packageName, PackageMetadataResource nugetPackageMetadataClient)
+		private static async Task<NuGetVersion> GetLatestNugetPackageVersion(string packageName, string packageSource, bool includePrerelease)
 		{
-			var searchMetadata = await nugetPackageMetadataClient.GetMetadataAsync(packageName, false, false, new SourceCacheContext(), NullLogger.Instance, CancellationToken.None).ConfigureAwait(false);
+			var metadataClient = PackageMetadataResourceManager.GetClient(packageSource);
+			var searchMetadata = await metadataClient.GetMetadataAsync(packageName, includePrerelease, false, new SourceCacheContext(), NullLogger.Instance, CancellationToken.None).ConfigureAwait(false);
 
 			IPackageSearchMetadata latestPackage = null;
 			if (searchMetadata != null && searchMetadata.Any())
@@ -482,26 +476,29 @@ namespace RefreshResources
 				}
 			}
 
-			if (latestPackage == null)
-			{
-				throw new Exception($"Unable to find package '{packageName}'");
-			}
-
-			var version = latestPackage.Identity.Version.ToNormalizedString();
-			return version;
+			return latestPackage?.Identity?.Version;
 		}
 
-		private static async Task<(string Name, string ReferencedVersion, string LatestVersion)> GetReferencedPackageInfo(Match match, PackageMetadataResource nugetPackageMetadataClient)
+		private static async Task<(string Name, string ReferencedVersion, string LatestVersion, string LatestPackageSource)> GetReferencedPackageInfo(Match match)
 		{
 			var parameters = HttpUtility.ParseQueryString(match.Groups["referencestring"].Value);
+			var packageRepository = match.Groups["packagerepository"].Value;
 			var packageName = parameters["package"];
 			var referencedVersion = parameters["version"];
-			var latestVersion = await GetLatestNugetPackageVersion(packageName, nugetPackageMetadataClient).ConfigureAwait(false);
 
-			return (packageName, referencedVersion, latestVersion);
+			// Get the latest version from NuGet.org
+			var latestVersionFromNuGet = await GetLatestNugetPackageVersion(packageName, null, false).ConfigureAwait(false);
+
+			// Get the latest version from custom source (if applicable)
+			var latestVersionFromCustomSource = string.IsNullOrEmpty(packageRepository) ? null : await GetLatestNugetPackageVersion(packageName, packageRepository, true).ConfigureAwait(false);
+
+			// Determine which version is the most recent
+			if (latestVersionFromNuGet == null && latestVersionFromCustomSource == null) throw new Exception($"Unable to find package '{packageName}'");
+			else if (latestVersionFromCustomSource != null) return (packageName, referencedVersion, latestVersionFromCustomSource.ToNormalizedString(), packageRepository);
+			else return (packageName, referencedVersion, latestVersionFromNuGet.ToNormalizedString(), string.Empty);
 		}
 
-		private static string GetPackageReferenceWithLatestVersion(Match match, IEnumerable<(string Name, string ReferencedVersion, string LatestVersion)> referencesInfo)
+		private static string GetPackageReferenceWithLatestVersion(Match match, IEnumerable<(string Name, string ReferencedVersion, string LatestVersion, string LatestPackageSource)> referencesInfo)
 		{
 			var parameters = HttpUtility.ParseQueryString(match.Groups["referencestring"].Value);
 
@@ -513,16 +510,16 @@ namespace RefreshResources
 			var exclude = parameters["exclude"];
 			var prerelease = (parameters.AllKeys?.Contains("prerelease") ?? false) || (parameters.GetValues(null)?.Contains("prerelease") ?? false);
 
-			var packageLatestVersion = referencesInfo.First(r => r.Name == packageName).LatestVersion;
+			var latestPackage = referencesInfo.First(r => r.Name == packageName);
 
 			var newContent = new StringBuilder();
 			newContent.Append(match.Groups["lineprefix"].Value);
 			newContent.Append(match.Groups["packageprefix"].Value);
 			newContent.AppendFormat(" {0}:", match.Groups["scheme"].Value);
 			newContent.Append(match.Groups["separator1"].Value);
-			newContent.Append(match.Groups["packagerepository"].Value);
+			newContent.Append(latestPackage.LatestPackageSource);
 			newContent.AppendFormat("?package={0}", packageName);
-			newContent.AppendFormat("&version={0}", packageLatestVersion);
+			newContent.AppendFormat("&version={0}", latestPackage.LatestVersion);
 			if (!string.IsNullOrEmpty(loadDependencies)) newContent.AppendFormat("&loaddependencies={0}", loadDependencies);
 			if (!string.IsNullOrEmpty(include)) newContent.AppendFormat("&include={0}", include);
 			if (!string.IsNullOrEmpty(exclude)) newContent.AppendFormat("&exclude={0}", exclude);
