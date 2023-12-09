@@ -1,5 +1,6 @@
 using HtmlAgilityPack;
 using LibGit2Sharp;
+using LibGit2Sharp.Handlers;
 using NuGet.Common;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
