@@ -44,7 +44,6 @@ namespace RefreshResources
 			( "jericho", "Picton.Messaging", ProjectType.Library),
 			( "jericho", "StrongGrid", ProjectType.Library),
 			( "jericho", "ZoomNet", ProjectType.Library),
-			( "jericho", "ZoomNet.TokenRepositories.Azure", ProjectType.Library),
 			( "jericho", "CakeMailNet", ProjectType.Library),
 			( "cake-contrib", "Cake.Email.Common", ProjectType.CakeAddin),
 			( "cake-contrib", "Cake.Email", ProjectType.CakeAddin),
