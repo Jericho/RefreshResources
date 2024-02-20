@@ -24,6 +24,7 @@ namespace RefreshResources
 		private const string ROOT_FOLDER = "D:\\_build\\";
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much large number of concurrent connections.
+		private const int DESIRED_SDK_MAJOR_VERSION = 8;
 
 		private static readonly Regex _addinReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "addin"), RegexOptions.Compiled | RegexOptions.Multiline);
 		private static readonly Regex _toolReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "tool"), RegexOptions.Compiled | RegexOptions.Multiline);
@@ -169,6 +170,7 @@ namespace RefreshResources
 			var author = repo.Config.BuildSignature(DateTimeOffset.Now);
 			var httpClient = new HttpClient();
 
+
 			//==================================================
 			// STEP 1 - Git pull in case there are some changes in the GitHub repo that have not been pulled (this would be very surprising, but better safe than sorry)
 			var pullOptions = new PullOptions()
@@ -176,6 +178,7 @@ namespace RefreshResources
 				FetchOptions = new FetchOptions()
 			};
 			Commands.Pull(repo, author, pullOptions);
+
 
 			//==================================================
 			// STEP 2 - Refresh the gitignore file
@@ -193,6 +196,7 @@ namespace RefreshResources
 
 				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content).ConfigureAwait(false);
 			}
+
 
 			//==================================================
 			// STEP 3 - Refresh other files (such as the dotnet install scripts for example)
@@ -216,6 +220,7 @@ namespace RefreshResources
 
 				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content).ConfigureAwait(false);
 			}
+
 
 			//==================================================
 			// STEP 4 - Make sure the addins referenced in the build script are up to date
@@ -247,15 +252,11 @@ namespace RefreshResources
 
 			//==================================================
 			// STEP 5 - Get the latest version of the .NET SDK
-			var htmlParser = new HtmlWeb();
-			var htmlDoc = await htmlParser.LoadFromWebAsync("https://dotnet.microsoft.com/en-us/download/dotnet/8.0", cancellationToken).ConfigureAwait(false);
-			var latestSdkVersion = htmlDoc.DocumentNode
-				.SelectNodes("//h3")
-				.Where(node => node.Id.StartsWith("sdk-8", StringComparison.OrdinalIgnoreCase))
-				.Select(node => SemVersion.Parse(node.InnerText.Replace("SDK ", string.Empty)))
-				.OrderByDescending(version => version)
-				.First();
+			var latestSdkVersion = await GetLatestSdkVersion(DESIRED_SDK_MAJOR_VERSION, cancellationToken).ConfigureAwait(false);
 
+
+			//==================================================
+			// STEP 6 - Update global.json with desired .NET SDK version
 			var globalJsonFilePath = Path.Combine(SOURCE_FOLDER, "global.json");
 			string currentGlobalJsonContent;
 
@@ -284,7 +285,7 @@ namespace RefreshResources
 
 
 			//==================================================
-			// STEP 6 - Commit the changes (if any)
+			// STEP 7 - Commit the changes (if any)
 			var changes = repo.Diff.Compare<TreeChanges>();
 			if (changes.Any())
 			{
@@ -334,6 +335,20 @@ namespace RefreshResources
 			{
 				Console.WriteLine("All files already up to date");
 			}
+		}
+
+		private static async Task<SemVersion> GetLatestSdkVersion(int desiredSdkMajorVersion, CancellationToken cancellationToken)
+		{
+			var htmlParser = new HtmlWeb();
+			var htmlDoc = await htmlParser.LoadFromWebAsync($"https://dotnet.microsoft.com/en-us/download/dotnet/{desiredSdkMajorVersion}.0", cancellationToken).ConfigureAwait(false);
+			var latestSdkVersion = htmlDoc.DocumentNode
+				.SelectNodes("//h3")
+				.Where(node => node.Id.StartsWith($"sdk-{desiredSdkMajorVersion}", StringComparison.OrdinalIgnoreCase))
+				.Select(node => SemVersion.Parse(node.InnerText.Replace("SDK ", string.Empty)))
+				.OrderByDescending(version => version)
+				.First();
+
+			return latestSdkVersion;
 		}
 
 		private static async Task CopyResourceFiles()
