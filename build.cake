@@ -12,10 +12,12 @@ var configuration = Argument<string>("configuration", "Release");
 ///////////////////////////////////////////////////////////////////////////////
 
 var appName = "RefreshResources";
-
 var outputDir = "./artifacts/";
-
 var cakeVersion = typeof(ICakeContext).Assembly.GetName().Version.ToString();
+var cleanTools = target == "cleantools";
+
+// Reset the target to "Default"
+if (cleanTools) target = "Default";
 
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -77,7 +79,7 @@ Task("Run")
 		new FilePath($"{outputDir}{appName}.exe"),
 		new ProcessSettings()
 		{
-			Arguments = "nopause"
+			Arguments = "nopause" + (cleanTools ? " cleantools" : "")
 		});
 	if (processResult != 0)
 	{

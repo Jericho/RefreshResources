@@ -76,16 +76,22 @@ namespace RefreshResources
 		{
 			try
 			{
-				// Make sure the expected labels are present on github
-				await RefreshGithubLabels().ConfigureAwait(false);
-
-				// Make sure the files in the resources folder are up to date
-				await RefreshResourcesAsync().ConfigureAwait(false);
-
-				// Copy resource files to projects
-				await CopyResourceFiles().ConfigureAwait(false);
+				if (args.Contains("cleantools"))
+				{
+					CakeToolsCleaner.Clean(ROOT_FOLDER);
+				}
+				else
+				{
+					/* 
+					 * 1. Make sure the expected labels are present on github
+					 * 2. Make sure the files in the resources folder are up to date
+					 * 3. Copy resource files to projects
+					 */
+					await RefreshGithubLabels().ConfigureAwait(false);
+					await RefreshResourcesAsync().ConfigureAwait(false);
+					await CopyResourceFiles().ConfigureAwait(false);
+				}
 			}
-
 			catch (Exception e)
 			{
 				Console.WriteLine(e.GetBaseException().Message);
@@ -546,5 +552,6 @@ namespace RefreshResources
 
 			return newContent.ToString();
 		}
+
 	}
 }
