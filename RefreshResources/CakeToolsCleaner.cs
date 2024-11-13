@@ -38,7 +38,7 @@ namespace RefreshResources
 			if (files.Length > 0)
 			{
 				var sb = new StringBuilder(255);
-				GetPrivateProfileString("Paths", "Tools", DEFAULT_TOOLS_FOLDER, sb, 255, files[0]);
+				var _ = GetPrivateProfileString("Paths", "Tools", DEFAULT_TOOLS_FOLDER, sb, 255, files[0]);
 				toolsPath = sb.ToString();
 				if (string.IsNullOrEmpty(toolsPath)) toolsPath = DEFAULT_TOOLS_FOLDER;
 			}

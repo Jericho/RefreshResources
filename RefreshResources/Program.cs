@@ -24,7 +24,7 @@ namespace RefreshResources
 		private const string ROOT_FOLDER = "D:\\_build\\";
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much large number of concurrent connections.
-		private const int DESIRED_SDK_MAJOR_VERSION = 8;
+		private const int DESIRED_SDK_MAJOR_VERSION = 9;
 
 		private static readonly Regex _addinReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "addin"), RegexOptions.Compiled | RegexOptions.Multiline);
 		private static readonly Regex _toolReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "tool"), RegexOptions.Compiled | RegexOptions.Multiline);
@@ -190,8 +190,8 @@ namespace RefreshResources
 			// STEP 2 - Refresh the gitignore file
 			using (var request = new HttpRequestMessage(HttpMethod.Get, "https://www.toptal.com/developers/gitignore/api/visualstudio"))
 			{
-				var response = await httpClient.SendAsync(request).ConfigureAwait(false);
-				var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+				var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+				var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
 				content = content
 					.Trim('\n')
@@ -200,7 +200,7 @@ namespace RefreshResources
 					.Replace("# End of https://www.toptal.com/developers/gitignore/api/visualstudio", "# WinMerge\n*.bak\n\n# End of https://www.toptal.com/developers/gitignore/api/visualstudio")
 					.Replace("\n", Environment.NewLine);
 
-				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content).ConfigureAwait(false);
+				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content, cancellationToken).ConfigureAwait(false);
 			}
 
 
@@ -217,14 +217,14 @@ namespace RefreshResources
 				var destinationFileName = Path.GetFileName(source);
 
 				using var request = new HttpRequestMessage(HttpMethod.Get, source);
-				var response = await httpClient.SendAsync(request).ConfigureAwait(false);
-				var content = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+				var response = await httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+				var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
 
 				content = content
 					.Replace("\r\n", "\n")
 					.Replace("\n", desiredLineEnding);
 
-				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content).ConfigureAwait(false);
+				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content, cancellationToken).ConfigureAwait(false);
 			}
 
 
@@ -293,7 +293,7 @@ namespace RefreshResources
 			//==================================================
 			// STEP 7 - Commit the changes (if any)
 			var changes = repo.Diff.Compare<TreeChanges>();
-			if (changes.Any())
+			if (changes.Count > 0)
 			{
 				Commands.Stage(repo, changes.Select(c => c.Path));
 				var commit = repo.Commit("Refresh resources", author, author);
@@ -396,7 +396,7 @@ namespace RefreshResources
 
 			var buildCakeVersion = project.ProjectType switch
 			{
-				ProjectType.Library => "4.2.0",
+				ProjectType.Library => "5.0.0",
 				ProjectType.CakeAddin => "1.3.0",
 				_ => throw new Exception("Unknown project type")
 			};
