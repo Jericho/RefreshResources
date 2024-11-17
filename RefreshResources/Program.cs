@@ -401,6 +401,13 @@ namespace RefreshResources
 				_ => throw new Exception("Unknown project type")
 			};
 
+			var buildImages = project.ProjectType switch
+			{
+				ProjectType.Library => "  - Ubuntu2204\r\n  - Visual Studio 2022",
+				ProjectType.CakeAddin => "  - Visual Studio 2022", // I get "could not load ssl libraries" when attempting to build addins on Ubuntu
+				_ => throw new Exception("Unknown project type")
+			};
+
 			var modifiedFiles = new List<string>();
 
 			foreach (var sourceFile in resourceFiles)
@@ -410,7 +417,8 @@ namespace RefreshResources
 					.Replace("%%PROJECT-NAME%%", project.ProjectName)
 					.Replace("%%BUILD-TARGET-NAME%%", buildTargetName)
 					.Replace("%%CAKE-SCRIPT-FILENAME%%", cakeScriptFileName)
-					.Replace("%%BUILD-CAKE-VERSION%%", buildCakeVersion);
+					.Replace("%%BUILD-CAKE-VERSION%%", buildCakeVersion)
+					.Replace("%%BUILD-IMAGES%%", buildImages);
 
 				var destinationName = sourceFile.FullName.Replace(SOURCE_FOLDER, "").Trim('\\');
 				var destinationPath = Path.Combine(ROOT_FOLDER, project.ProjectName, destinationName);
