@@ -367,8 +367,14 @@ namespace RefreshResources
 			foreach (var project in PROJECTS)
 			{
 				var filesForThisProject = files
+
+					// Pick the right cake script depending on the type of project
 					.Where(fi => !(fi.Name.Equals("recipe.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
 					.Where(fi => !(fi.Name.Equals("build.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
+
+					// Pick the right GitVersion config file depending on the type of project
+					.Where(fi => !(fi.Name.Equals("GitVersion-old.yml", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
+					.Where(fi => !(fi.Name.Equals("GitVersion.yml", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
 					.ToArray();
 
 				await CopyResourceFilesToProject(filesForThisProject, project).ConfigureAwait(false);
@@ -420,7 +426,10 @@ namespace RefreshResources
 					.Replace("%%BUILD-CAKE-VERSION%%", buildCakeVersion)
 					.Replace("%%BUILD-IMAGES%%", buildImages);
 
-				var destinationName = sourceFile.FullName.Replace(SOURCE_FOLDER, "").Trim('\\');
+				var destinationName = sourceFile.FullName
+					.Replace(SOURCE_FOLDER, string.Empty)
+					.Replace("-old", string.Empty)
+					.Trim('\\');
 				var destinationPath = Path.Combine(ROOT_FOLDER, project.ProjectName, destinationName);
 				var destinationFolder = Path.GetDirectoryName(destinationPath);
 
