@@ -397,7 +397,7 @@ namespace RefreshResources
 			var buildCakeVersion = project.ProjectType switch
 			{
 				ProjectType.Library => "5.0.0",
-				ProjectType.CakeAddin => "1.3.0",
+				ProjectType.CakeAddin => "2.3.0",
 				_ => throw new Exception("Unknown project type")
 			};
 
