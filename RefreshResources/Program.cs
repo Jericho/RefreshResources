@@ -367,7 +367,8 @@ namespace RefreshResources
 			foreach (var project in PROJECTS)
 			{
 				var filesForThisProject = files
-					.Where(fi => !fi.Name.Equals("recipe.cake", StringComparison.OrdinalIgnoreCase))
+					.Where(fi => !(fi.Name.Equals("recipe.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
+					.Where(fi => !(fi.Name.Equals("build.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
 					.ToArray();
 
 				await CopyResourceFilesToProject(filesForThisProject, project).ConfigureAwait(false);
@@ -382,21 +383,21 @@ namespace RefreshResources
 			var buildTargetName = project.ProjectType switch
 			{
 				ProjectType.Library => "AppVeyor",
-				ProjectType.CakeAddin => "AppVeyor",
+				ProjectType.CakeAddin => "CI",
 				_ => throw new Exception("Unknown project type")
 			};
 
 			var cakeScriptFileName = project.ProjectType switch
 			{
 				ProjectType.Library => "build.cake",
-				ProjectType.CakeAddin => "build.cake",
+				ProjectType.CakeAddin => "recipe.cake",
 				_ => throw new Exception("Unknown project type")
 			};
 
 			var buildCakeVersion = project.ProjectType switch
 			{
 				ProjectType.Library => "5.0.0",
-				ProjectType.CakeAddin => "5.0.0",
+				ProjectType.CakeAddin => "1.3.0",
 				_ => throw new Exception("Unknown project type")
 			};
 
