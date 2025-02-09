@@ -255,12 +255,8 @@ namespace RefreshResources
 
 
 			//==================================================
-			// STEP 5 - Get the latest version of the .NET SDK
+			// STEP 5 - Update global.json with desired .NET SDK version
 			var latestSdkVersion = await GetLatestSdkVersion(DESIRED_SDK_MAJOR_VERSION, cancellationToken).ConfigureAwait(false);
-
-
-			//==================================================
-			// STEP 6 - Update global.json with desired .NET SDK version
 			var globalJsonFilePath = Path.Combine(SOURCE_FOLDER, "global.json");
 			string currentGlobalJsonContent;
 
@@ -289,7 +285,7 @@ namespace RefreshResources
 
 
 			//==================================================
-			// STEP 7 - Commit the changes (if any)
+			// STEP 6 - Commit the changes (if any)
 			var changes = repo.Diff.Compare<TreeChanges>();
 			if (changes.Count > 0)
 			{
