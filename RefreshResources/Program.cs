@@ -369,6 +369,10 @@ namespace RefreshResources
 					// Pick the right GitVersion config file depending on the type of project
 					.Where(fi => !(fi.Name.Equals("GitVersion-old.yml", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
 					.Where(fi => !(fi.Name.Equals("GitVersion.yml", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
+
+					// I am using Microsoft's CodeCoverage tool in my library projects only at this time
+					.Where(fi => !(fi.Name.Equals("CodeCoverage.runsettings", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
+
 					.ToArray();
 
 				await CopyResourceFilesToProject(filesForThisProject, project).ConfigureAwait(false);
