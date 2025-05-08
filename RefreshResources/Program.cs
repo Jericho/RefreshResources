@@ -120,7 +120,7 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task RefreshGithubLabels(IGitHubClient githubClient, string ownerName, string projectName)
+		private static async Task RefreshGithubLabels(GitHubClient githubClient, string ownerName, string projectName)
 		{
 			var existingLabels = await githubClient.Issue.Labels.GetAllForRepository(ownerName, projectName).ConfigureAwait(false);
 
