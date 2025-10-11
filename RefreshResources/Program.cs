@@ -35,7 +35,7 @@ namespace RefreshResources
 		private enum ProjectType
 		{
 			Library,
-			CakeAddin
+			CakeAddin,
 		}
 
 		private static readonly IEnumerable<(string Owner, string ProjectName, ProjectType ProjectType)> PROJECTS = new List<(string, string, ProjectType)>
@@ -81,7 +81,7 @@ namespace RefreshResources
 				else
 				{
 					/* 
-					 * 1. Make sure the expected labels are present on github
+					 * 1. Make sure the expected labels are present on GitHub
 					 * 2. Make sure the files in the resources folder are up to date
 					 * 3. Copy resource files to projects
 					 */
@@ -363,12 +363,12 @@ namespace RefreshResources
 				var filesForThisProject = files
 
 					// Pick the right cake script depending on the type of project
-					.Where(fi => !(fi.Name.Equals("recipe.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
-					.Where(fi => !(fi.Name.Equals("build.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
+					.Where(fi => fi.Extension != ".cake" || (fi.Name.Equals("build.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
+					.Where(fi => fi.Extension != ".cake" || (fi.Name.Equals("recipe.cake", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
 
 					// Pick the right GitVersion config file depending on the type of project
-					.Where(fi => !(fi.Name.Equals("GitVersion-old.yml", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
-					.Where(fi => !(fi.Name.Equals("GitVersion.yml", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
+					.Where(fi => fi.Extension != ".yml" || (fi.Name.Equals("GitVersion.yml", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.Library))
+					.Where(fi => fi.Extension != ".yml" || (fi.Name.Equals("GitVersion-old.yml", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
 
 					// I am using Microsoft's CodeCoverage tool in my library projects only at this time
 					.Where(fi => !(fi.Name.Equals("CodeCoverage.runsettings", StringComparison.OrdinalIgnoreCase) && project.ProjectType == ProjectType.CakeAddin))
