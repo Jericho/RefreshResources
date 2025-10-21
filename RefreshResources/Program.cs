@@ -24,7 +24,7 @@ namespace RefreshResources
 		private const string ROOT_FOLDER = "D:\\_build\\";
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much large number of concurrent connections.
-		private const int DESIRED_SDK_MAJOR_VERSION = 9;
+		private const int DESIRED_SDK_MAJOR_VERSION = 10;
 
 		private static readonly Regex _addinReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "addin"), RegexOptions.Compiled | RegexOptions.Multiline);
 		private static readonly Regex _toolReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "tool"), RegexOptions.Compiled | RegexOptions.Multiline);
@@ -38,9 +38,9 @@ namespace RefreshResources
 			CakeAddin,
 		}
 
-		private static readonly IEnumerable<(string Owner, string ProjectName, ProjectType ProjectType)> PROJECTS = new List<(string, string, ProjectType)>
+		private static readonly List<(string GitHubOwner, string GitHubRepo, ProjectType ProjectType)> PROJECTS = new()
 		{
-			( "Http-Multipart-Data-Parser", "Http-Multipart-Data-Parser", ProjectType.Library),
+			( "Http-Multipart-Data-Parser", "HttpMultipartParser", ProjectType.Library),
 			( "jericho", "Picton", ProjectType.Library),
 			( "jericho", "Picton.Messaging", ProjectType.Library),
 			( "jericho", "StrongGrid", ProjectType.Library),
@@ -50,7 +50,7 @@ namespace RefreshResources
 			( "cake-contrib", "Cake.SendGrid", ProjectType.CakeAddin),
 		};
 
-		private static readonly IEnumerable<(string Name, string Color, string Description)> LABELS = new List<(string, string, string)>
+		private static readonly List<(string Name, string Color, string Description)> LABELS = new()
 		{
 			( "Breaking Change", "b60205", "This change causes backward compatibility issue(s)" ),
 			( "Bug", "d73a4a", "This change resolves a defect" ),
@@ -116,13 +116,13 @@ namespace RefreshResources
 
 			foreach (var project in PROJECTS)
 			{
-				await RefreshGithubLabels(githubClient, project.Owner, project.ProjectName).ConfigureAwait(false);
+				await RefreshGithubLabels(githubClient, project.GitHubOwner, project.GitHubRepo).ConfigureAwait(false);
 			}
 		}
 
-		private static async Task RefreshGithubLabels(GitHubClient githubClient, string ownerName, string projectName)
+		private static async Task RefreshGithubLabels(GitHubClient githubClient, string ownerName, string repoName)
 		{
-			var existingLabels = await githubClient.Issue.Labels.GetAllForRepository(ownerName, projectName).ConfigureAwait(false);
+			var existingLabels = await githubClient.Issue.Labels.GetAllForRepository(ownerName, repoName).ConfigureAwait(false);
 
 			var createdLabels = new List<string>();
 			var modifiedLabels = new List<string>();
@@ -140,7 +140,7 @@ namespace RefreshResources
 						Description = label.Description
 					};
 
-					await githubClient.Issue.Labels.Create(ownerName, projectName, newLabel).ConfigureAwait(false);
+					await githubClient.Issue.Labels.Create(ownerName, repoName, newLabel).ConfigureAwait(false);
 					createdLabels.Add(label.Name);
 				}
 
@@ -157,15 +157,15 @@ namespace RefreshResources
 						{
 							Description = label.Description
 						};
-						await githubClient.Issue.Labels.Update(ownerName, projectName, existingLabel.Name, labelUpdate).ConfigureAwait(false);
+						await githubClient.Issue.Labels.Update(ownerName, repoName, existingLabel.Name, labelUpdate).ConfigureAwait(false);
 						modifiedLabels.Add(label.Name);
 					}
 				}
 			}
 
-			if (createdLabels.Count > 0) Console.WriteLine($"{projectName} added: " + string.Join(", ", createdLabels));
-			if (modifiedLabels.Count > 0) Console.WriteLine($"{projectName} modified: " + string.Join(", ", modifiedLabels));
-			if (createdLabels.Count == 0 && modifiedLabels.Count == 0) Console.WriteLine($"{projectName}: All labels already up to date");
+			if (createdLabels.Count > 0) Console.WriteLine($"{repoName} added: " + string.Join(", ", createdLabels));
+			if (modifiedLabels.Count > 0) Console.WriteLine($"{repoName} modified: " + string.Join(", ", modifiedLabels));
+			if (createdLabels.Count == 0 && modifiedLabels.Count == 0) Console.WriteLine($"{repoName}: All labels already up to date");
 		}
 
 		private static async Task RefreshResourcesAsync(CancellationToken cancellationToken = default)
@@ -382,10 +382,10 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resourceFiles, (string Owner, string ProjectName, ProjectType ProjectType) project)
+		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resourceFiles, (string GitHubOwner, string GitHubRepoName, ProjectType ProjectType) project)
 		{
-			if (string.IsNullOrEmpty(project.Owner)) throw new ArgumentException("You must specify the owner of the project", $"{nameof(project)}.{nameof(project.Owner)}");
-			if (string.IsNullOrEmpty(project.ProjectName)) throw new ArgumentException("You must specify the name of the project", $"{nameof(project)}.{nameof(project.ProjectName)}");
+			ArgumentNullException.ThrowIfNullOrEmpty(project.GitHubOwner, $"{nameof(project)}.{nameof(project.GitHubOwner)}");
+			ArgumentNullException.ThrowIfNullOrEmpty(project.GitHubRepoName, $"{nameof(project)}.{nameof(project.GitHubRepoName)}");
 
 			var buildTargetName = project.ProjectType switch
 			{
@@ -421,7 +421,7 @@ namespace RefreshResources
 			{
 				var fileContent = await File.ReadAllTextAsync(sourceFile.FullName).ConfigureAwait(false);
 				var sourceContent = fileContent
-					.Replace("%%PROJECT-NAME%%", project.ProjectName)
+					.Replace("%%PROJECT-NAME%%", project.GitHubRepoName)
 					.Replace("%%BUILD-TARGET-NAME%%", buildTargetName)
 					.Replace("%%CAKE-SCRIPT-FILENAME%%", cakeScriptFileName)
 					.Replace("%%BUILD-CAKE-VERSION%%", buildCakeVersion)
@@ -431,7 +431,7 @@ namespace RefreshResources
 					.Replace(SOURCE_FOLDER, string.Empty)
 					.Replace("-old", string.Empty)
 					.Trim('\\');
-				var destinationPath = Path.Combine(ROOT_FOLDER, project.ProjectName, destinationName);
+				var destinationPath = Path.Combine(ROOT_FOLDER, project.GitHubRepoName, destinationName);
 				var destinationFolder = Path.GetDirectoryName(destinationPath);
 
 				var destinationFile = new FileInfo(destinationPath);
@@ -446,11 +446,11 @@ namespace RefreshResources
 
 			if (modifiedFiles.Count > 0)
 			{
-				Console.WriteLine($"{project.ProjectName} " + string.Join(", ", modifiedFiles));
+				Console.WriteLine($"{project.GitHubRepoName} " + string.Join(", ", modifiedFiles));
 			}
 			else
 			{
-				Console.WriteLine($"{project.ProjectName}: All files already up to date");
+				Console.WriteLine($"{project.GitHubRepoName}: All files already up to date");
 			}
 		}
 
