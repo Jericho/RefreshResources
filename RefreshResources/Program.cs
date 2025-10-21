@@ -265,7 +265,7 @@ namespace RefreshResources
 				currentGlobalJsonContent = await sr.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
 			}
 
-			var currentSdkInfo = Extensions.DeserializeAnonymousType(currentGlobalJsonContent, new { sdk = new { version = "", rollForward = "", allowPrerelease = false } });
+			var currentSdkInfo = Extensions.DeserializeAnonymousType(currentGlobalJsonContent, new { sdk = new { version = "", rollForward = "", allowPrerelease = false }, test = new { runner = "Microsoft.Testing.Platform" } });
 
 			var updatedSdkInfo = new
 			{
@@ -274,6 +274,10 @@ namespace RefreshResources
 					version = latestSdkVersion.ToString(),
 					currentSdkInfo.sdk.rollForward,
 					currentSdkInfo.sdk.allowPrerelease
+				},
+				test = new
+				{
+					currentSdkInfo.test.runner
 				}
 			};
 
