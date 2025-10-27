@@ -80,12 +80,11 @@ namespace RefreshResources
 				}
 				else
 				{
-					/* 
-					 * 1. Make sure the expected labels are present on GitHub
-					 * 2. Make sure the files in the resources folder are up to date
-					 * 3. Copy resource files to projects
-					 */
-					await RefreshGithubLabels().ConfigureAwait(false);
+					var credentials = !string.IsNullOrEmpty(GITHUB_TOKEN) ? new Octokit.Credentials(GITHUB_TOKEN) : new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
+					var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
+
+					await RefreshGithubLabels(githubClient).ConfigureAwait(false);
+					await RefreshSendGridWebHookList(githubClient).ConfigureAwait(false);
 					await RefreshResourcesAsync().ConfigureAwait(false);
 					await CopyResourceFiles().ConfigureAwait(false);
 				}
@@ -106,11 +105,8 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task RefreshGithubLabels()
+		private static async Task RefreshGithubLabels(GitHubClient githubClient)
 		{
-			var credentials = !string.IsNullOrEmpty(GITHUB_TOKEN) ? new Octokit.Credentials(GITHUB_TOKEN) : new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
-			var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
-
 			Console.WriteLine();
 			Console.WriteLine("***** Github labels *****");
 
@@ -575,5 +571,149 @@ namespace RefreshResources
 			return newContent.ToString();
 		}
 
+		private static async Task RefreshSendGridWebHookList(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		{
+			Console.WriteLine();
+			Console.WriteLine("***** SendGrid Webhooks list *****");
+
+			var repoOwner = "jericho";
+			var repoName = "ZoomNet";
+
+			var resourcePath = $"/Source/{repoName}/Models/Webhooks/EventType.cs";
+			var contents = await githubClient.Repository.Content.GetAllContents(repoOwner, repoName, resourcePath).ConfigureAwait(false);
+			var eventTypeCSharpSource = contents[0].Content;
+
+			var meetingEvents = await GetSendGridWebhookList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
+			var rtmsEvents = await GetSendGridWebhookList("RTMS", "rtms", cancellationToken).ConfigureAwait(false);
+			var teamChatEvents = await GetSendGridWebhookList("Team Chat", "team-chat", cancellationToken).ConfigureAwait(false);
+			var phoneEvents = await GetSendGridWebhookList("Phone", "phone", cancellationToken).ConfigureAwait(false);
+			var mailEvents = await GetSendGridWebhookList("Mail", "mail", cancellationToken).ConfigureAwait(false);
+			var calendarEvents = await GetSendGridWebhookList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
+			var roomsEvents = await GetSendGridWebhookList("Rooms", "rooms", cancellationToken).ConfigureAwait(false);
+			var whiteboardEvents = await GetSendGridWebhookList("Whiteboard", "whiteboard", cancellationToken).ConfigureAwait(false);
+			var chatbotEvents = await GetSendGridWebhookList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
+			var schedulerEvents = await GetSendGridWebhookList("Scheduler", "scheduler", cancellationToken).ConfigureAwait(false);
+			var contactCenterEvents = await GetSendGridWebhookList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
+			var eventsEvents = await GetSendGridWebhookList("Events", "events", cancellationToken).ConfigureAwait(false);
+			var iqEvents = await GetSendGridWebhookList("Revenue Accelerator", "iq", cancellationToken).ConfigureAwait(false);
+			var numberManagementEvents = await GetSendGridWebhookList("Number Management", "number-management", cancellationToken).ConfigureAwait(false);
+			var nodeEvents = await GetSendGridWebhookList("Node", "node", cancellationToken).ConfigureAwait(false);
+			var qualityManagementEvents = await GetSendGridWebhookList("Quality Management", "quality-management", cancellationToken).ConfigureAwait(false);
+			var healthcareEvents = await GetSendGridWebhookList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
+			var videoManagementEvents = await GetSendGridWebhookList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
+			var usersEvents = await GetSendGridWebhookList("Users", "users", cancellationToken).ConfigureAwait(false);
+			var accountsEvents = await GetSendGridWebhookList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
+			var qssEvents = await GetSendGridWebhookList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
+			var videoSdkEvents = await GetSendGridWebhookList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
+			var cobrowseSdkEvents = await GetSendGridWebhookList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
+			var appsEvents = await GetSendGridWebhookList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
+
+			var allEvents = meetingEvents
+				.Union(rtmsEvents)
+				.Union(teamChatEvents)
+				.Union(phoneEvents)
+				.Union(mailEvents)
+				.Union(calendarEvents)
+				.Union(roomsEvents)
+				.Union(roomsEvents)
+				.Union(chatbotEvents)
+				.Union(schedulerEvents)
+				.Union(contactCenterEvents)
+				.Union(eventsEvents)
+				.Union(iqEvents)
+				.Union(numberManagementEvents)
+				.Union(nodeEvents)
+				.Union(qualityManagementEvents)
+				.Union(healthcareEvents)
+				.Union(videoManagementEvents)
+				.Union(usersEvents)
+				.Union(accountsEvents)
+				.Union(qssEvents)
+				.Union(videoSdkEvents)
+				.Union(cobrowseSdkEvents)
+				.Union(appsEvents)
+				.GroupBy(
+					ev => new { ev.Title, ev.Group },
+					ev => new { EventName = ev.Name, IsHandled = eventTypeCSharpSource.Contains(ev.Name) },
+					(key, items) => new { Key = key, Events = items.ToArray() })
+				.ToArray();
+
+			var issueTitle = "List of Webhook events";
+			var issueBody = new StringBuilder();
+			issueBody.Append("This issue documents the full list of webhook events in the SendGrid platform and also tracks which ones can be handled by the ZoomNet library. ");
+
+			foreach (var grp in allEvents)
+			{
+				issueBody.AppendLine();
+				issueBody.AppendLine("<details>");
+				issueBody.AppendLine($"<summary>{grp.Key.Title} ({grp.Events.Count(ev => ev.IsHandled)}/{grp.Events.Length})</summary>");
+				issueBody.AppendLine();
+				issueBody.AppendLine($"[Documentation](https://developers.zoom.us/docs/api/{grp.Key.Group}/events/)");
+				issueBody.AppendLine();
+				foreach (var ev in grp.Events)
+				{
+					var checkState = ev.IsHandled ? "x" : " ";
+					issueBody.AppendLine($"- [{checkState}] {ev.EventName}");
+				}
+				issueBody.AppendLine("</details>");
+			}
+
+			var grandTotalEvents = allEvents.Sum(g => g.Events.Length);
+			var grantTotalHandled = allEvents.Sum(g => g.Events.Count(ev => ev.IsHandled));
+
+			issueBody.AppendLine();
+			issueBody.Append($"There is a grand total of {grandTotalEvents} events and ZoomNet can handle {grantTotalHandled} of them.");
+
+			var request = new RepositoryIssueRequest()
+			{
+				Creator = repoOwner,
+				State = ItemStateFilter.Open,
+				SortProperty = IssueSort.Created,
+				SortDirection = SortDirection.Descending
+			};
+
+			var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoName, request).ConfigureAwait(false);
+			var issue = issues.FirstOrDefault(i => i.Title.Equals(issueTitle, StringComparison.OrdinalIgnoreCase));
+			if (issue == null)
+			{
+				var newIssue = new NewIssue(issueTitle)
+				{
+					Body = issueBody.ToString()
+				};
+				issue = await githubClient.Issue.Create(repoOwner, repoName, newIssue).ConfigureAwait(false);
+			}
+			else
+			{
+				var issueUpdate = issue.ToUpdate();
+				issueUpdate.Body = issueBody.ToString();
+				issue = await githubClient.Issue.Update(repoOwner, repoName, issue.Number, issueUpdate).ConfigureAwait(false);
+			}
+		}
+
+		private static async Task<(string Title, string Group, string Name)[]> GetSendGridWebhookList(string title, string group, CancellationToken cancellationToken)
+		{
+			string url = $"https://developers.zoom.us/api-hub/{group}/events/webhooks.json";
+			using HttpClient client = new();
+
+			var httpResponse = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+			if (httpResponse.IsSuccessStatusCode)
+			{
+				var jsonContent = await httpResponse.Content.ReadAsStringAsync(cancellationToken);
+				var jsonRootElement = JsonDocument.Parse(jsonContent).RootElement;
+
+				if (jsonRootElement.TryGetProperty("webhooks", out JsonElement jsonWebhooks))
+				{
+					var webhooks = jsonWebhooks
+						.EnumerateObject()
+						.Select(prop => (title, group, prop.Name))
+						.OrderBy(w => w.Name)
+						.ToArray();
+
+					return webhooks;
+				}
+			}
+
+			return [];
+		}
 	}
 }
