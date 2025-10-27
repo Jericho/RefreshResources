@@ -38,8 +38,8 @@ namespace RefreshResources
 			CakeAddin,
 		}
 
-		private static readonly List<(string GitHubOwner, string GitHubRepo, ProjectType ProjectType)> PROJECTS = new()
-		{
+		private static readonly List<(string GitHubOwner, string GitHubRepo, ProjectType ProjectType)> PROJECTS =
+		[
 			( "Http-Multipart-Data-Parser", "HttpMultipartParser", ProjectType.Library),
 			( "jericho", "Picton", ProjectType.Library),
 			( "jericho", "Picton.Messaging", ProjectType.Library),
@@ -48,10 +48,10 @@ namespace RefreshResources
 			( "cake-contrib", "Cake.Email.Common", ProjectType.CakeAddin),
 			( "cake-contrib", "Cake.Email", ProjectType.CakeAddin),
 			( "cake-contrib", "Cake.SendGrid", ProjectType.CakeAddin),
-		};
+		];
 
-		private static readonly List<(string Name, string Color, string Description)> LABELS = new()
-		{
+		private static readonly List<(string Name, string Color, string Description)> LABELS =
+		[
 			( "Breaking Change", "b60205", "This change causes backward compatibility issue(s)" ),
 			( "Bug", "d73a4a", "This change resolves a defect" ),
 			( "Documentation", "0075ca", "Improvements or additions to documentation" ),
@@ -64,7 +64,7 @@ namespace RefreshResources
 			( "on hold", "e99695", "This will not be worked on until further notice" ),
 			( "question", "d876e3", "Someone is asking a question" ),
 			( "wontfix", "ffffff", "This will not be worked on" )
-		};
+		];
 
 		private static readonly string GITHUB_TOKEN = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
 		private static readonly string GITHUB_USERNAME = Environment.GetEnvironmentVariable("GITHUB_USERNAME");
