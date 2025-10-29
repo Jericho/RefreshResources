@@ -167,6 +167,9 @@ namespace RefreshResources
 
 		private static async Task RefreshResourcesAsync(CancellationToken cancellationToken = default)
 		{
+			Console.WriteLine();
+			Console.WriteLine("***** Resources *****");
+
 			var repo = new LibGit2Sharp.Repository(SOURCE_FOLDER);
 			var author = repo.Config.BuildSignature(DateTimeOffset.Now);
 			var httpClient = new HttpClient();
@@ -647,6 +650,7 @@ namespace RefreshResources
 			var resxDoc = new XmlDocument();
 			resxDoc.Load(resxPath);
 			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
+			var sampleFilesCreated = 0;
 
 			foreach (var grp in allEvents)
 			{
@@ -672,6 +676,7 @@ namespace RefreshResources
 							.Replace("\\\"", "\"")
 							.TrimEnd('\"');
 						File.WriteAllText(samplePath, sample);
+						sampleFilesCreated++;
 
 						var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
 						var nameAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("name"));
@@ -688,6 +693,8 @@ namespace RefreshResources
 				}
 				issueBody.AppendLine("</details>");
 			}
+
+			Console.WriteLine($"{sampleFilesCreated} sample files were crated");
 
 			resxDoc.Save(resxPath);
 
@@ -714,12 +721,14 @@ namespace RefreshResources
 					Body = issueBody.ToString()
 				};
 				issue = await githubClient.Issue.Create(repoOwner, repoName, newIssue).ConfigureAwait(false);
+				Console.WriteLine($"Issue created: {issue.HtmlUrl}");
 			}
 			else
 			{
 				var issueUpdate = issue.ToUpdate();
 				issueUpdate.Body = issueBody.ToString();
 				issue = await githubClient.Issue.Update(repoOwner, repoName, issue.Number, issueUpdate).ConfigureAwait(false);
+				Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
 			}
 		}
 
