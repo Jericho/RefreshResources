@@ -63,7 +63,7 @@ Task("Publish")
 	.IsDependentOn("Clean")
 	.Does(() =>
 {
-	DotNetPublish($"./{appName}.sln", new DotNetPublishSettings
+	DotNetPublish($"./{appName}.slnx", new DotNetPublishSettings
 	{
 		Configuration = configuration,
 		PublishSingleFile = true,
