@@ -16,6 +16,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
+using System.Xml;
 
 namespace RefreshResources
 {
@@ -634,13 +635,18 @@ namespace RefreshResources
 				.Union(appsEvents)
 				.GroupBy(
 					ev => new { ev.Title, ev.Group },
-					ev => new { EventName = ev.Name, IsHandled = eventTypeCSharpSource.Contains(ev.Name) },
+					ev => new { EventName = ev.Name, IsHandled = eventTypeCSharpSource.Contains(ev.Name), ev.Sample },
 					(key, items) => new { Key = key, Events = items.ToArray() })
 				.ToArray();
 
 			var issueTitle = "List of Webhook events";
 			var issueBody = new StringBuilder();
 			issueBody.Append("This issue documents the full list of webhook events in the SendGrid platform and also tracks which ones can be handled by the ZoomNet library. ");
+
+			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\Resource.resx";
+			var resxDoc = new XmlDocument();
+			resxDoc.Load(resxPath);
+			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
 
 			foreach (var grp in allEvents)
 			{
@@ -654,9 +660,42 @@ namespace RefreshResources
 				{
 					var checkState = ev.IsHandled ? "x" : " ";
 					issueBody.AppendLine($"- [{checkState}] {ev.EventName}");
+
+					// Add sample to ZoomNet unit testing repository
+					var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\WebhookData\\{ev.EventName}.json";
+					if (!File.Exists(samplePath))
+					{
+						var sample = ev.Sample
+							.TrimStart('\"')
+							.Replace("\\n", "\r\n")
+							.Replace("\\t", "\t")
+							.Replace("\\\"", "\"")
+							.TrimEnd('\"');
+						File.WriteAllText(samplePath, sample);
+
+						var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
+						var nameAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("name"));
+						nameAttribute.Value = $"{ev.EventName.Replace('.', '_')}_webhook"; // replace all '.' with '_'
+						var typeAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("type"));
+						typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
+
+						var valueNode = resxDoc.CreateNode(XmlNodeType.Element, "value", null);
+						valueNode.InnerText = $@"..\WebhookData\{ev.EventName}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
+						dataNode.AppendChild(valueNode);
+
+						resxRootNode.AppendChild(dataNode);
+
+						/*
+							<data name="meeting_ended_webhook" type="System.Resources.ResXFileRef, System.Windows.Forms">
+								<value>..\WebhookData\meeting.ended.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8</value>
+							</data>
+						*/
+					}
 				}
 				issueBody.AppendLine("</details>");
 			}
+
+			resxDoc.Save(resxPath);
 
 			var grandTotalEvents = allEvents.Sum(g => g.Events.Length);
 			var grantTotalHandled = allEvents.Sum(g => g.Events.Count(ev => ev.IsHandled));
@@ -690,9 +729,9 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task<(string Title, string Group, string Name)[]> GetSendGridWebhookList(string title, string group, CancellationToken cancellationToken)
+		private static async Task<(string Title, string Group, string Name, string Sample)[]> GetSendGridWebhookList(string title, string group, CancellationToken cancellationToken)
 		{
-			string url = $"https://developers.zoom.us/api-hub/{group}/events/webhooks.json";
+			var url = $"https://developers.zoom.us/api-hub/{group}/events/webhooks.json";
 			using HttpClient client = new();
 
 			var httpResponse = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
@@ -705,7 +744,7 @@ namespace RefreshResources
 				{
 					var webhooks = jsonWebhooks
 						.EnumerateObject()
-						.Select(prop => (title, group, prop.Name))
+						.Select(prop => (title, group, prop.Name, prop.Value.GetProperty("post\\requestBody\\content\\application/json\\examples\\json-example\\value", '\\', true).Value.GetRawText()))
 						.OrderBy(w => w.Name)
 						.ToArray();
 

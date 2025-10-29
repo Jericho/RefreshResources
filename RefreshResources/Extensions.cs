@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -74,5 +75,27 @@ namespace RefreshResources
 		{
 			return !string.IsNullOrEmpty(value) && value.EndsWith(suffix) ? value : string.Concat(value, suffix);
 		}
+
+		public static JsonElement? GetProperty(this JsonElement element, string name, char splitChar = '/', bool throwIfMissing = true)
+		{
+			var parts = name.Split(splitChar);
+			if (!element.TryGetProperty(parts[0], out var property))
+			{
+				if (throwIfMissing) throw new ArgumentException($"Unable to find '{name}'", nameof(name));
+				else return null;
+			}
+
+			foreach (var part in parts.Skip(1))
+			{
+				if (!property.TryGetProperty(part, out property))
+				{
+					if (throwIfMissing) throw new ArgumentException($"Unable to find '{name}'", nameof(name));
+					else return null;
+				}
+			}
+
+			return property;
+		}
+
 	}
 }
