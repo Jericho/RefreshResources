@@ -694,7 +694,7 @@ namespace RefreshResources
 				issueBody.AppendLine("</details>");
 			}
 
-			Console.WriteLine($"{sampleFilesCreated} sample files were crated");
+			Console.WriteLine($"{sampleFilesCreated} sample files were created");
 
 			resxDoc.Save(resxPath);
 
