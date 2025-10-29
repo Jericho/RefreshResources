@@ -684,12 +684,6 @@ namespace RefreshResources
 						dataNode.AppendChild(valueNode);
 
 						resxRootNode.AppendChild(dataNode);
-
-						/*
-							<data name="meeting_ended_webhook" type="System.Resources.ResXFileRef, System.Windows.Forms">
-								<value>..\WebhookData\meeting.ended.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8</value>
-							</data>
-						*/
 					}
 				}
 				issueBody.AppendLine("</details>");
