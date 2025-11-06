@@ -694,12 +694,21 @@ namespace RefreshResources
 				issueBody.AppendLine("</details>");
 			}
 
+			issueBody.AppendLine();
+			issueBody.AppendLine("<details>");
+			issueBody.AppendLine("<summary>Webhook endpoint validation (1/1)</summary>");
+			issueBody.AppendLine();
+			issueBody.AppendLine("[Documentation](https://developers.zoom.us/docs/api/webhooks/#validate-your-webhook-endpoint)");
+			issueBody.AppendLine();
+			issueBody.AppendLine("- [x] endpoint.url_validation");
+			issueBody.AppendLine("</details>");
+
 			Console.WriteLine($"{sampleFilesCreated} sample files were created");
 
 			resxDoc.Save(resxPath);
 
-			var grandTotalEvents = allEvents.Sum(g => g.Events.Length);
-			var grantTotalHandled = allEvents.Sum(g => g.Events.Count(ev => ev.IsHandled));
+			var grandTotalEvents = allEvents.Sum(g => g.Events.Length) + 1; // +1 because of endpoint.url_validation
+			var grantTotalHandled = allEvents.Sum(g => g.Events.Count(ev => ev.IsHandled)) + 1; // +1 because of endpoint.url_validation
 
 			issueBody.AppendLine();
 			issueBody.Append($"There is a grand total of {grandTotalEvents} events and ZoomNet can handle {grantTotalHandled} of them.");
