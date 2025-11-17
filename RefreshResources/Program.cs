@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -88,6 +89,9 @@ namespace RefreshResources
 					await RefreshSendGridWebHookList(githubClient).ConfigureAwait(false);
 					await RefreshResourcesAsync().ConfigureAwait(false);
 					await CopyResourceFiles().ConfigureAwait(false);
+
+					// Commented out because I don't want 450 new issues created in the ZoomNet repo
+					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
 				}
 			}
 			catch (Exception e)
@@ -198,7 +202,7 @@ namespace RefreshResources
 					.Replace("# End of https://www.toptal.com/developers/gitignore/api/visualstudio", "# WinMerge\n*.bak\n\n# End of https://www.toptal.com/developers/gitignore/api/visualstudio")
 					.Replace("\n", Environment.NewLine);
 
-				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content, cancellationToken).ConfigureAwait(false);
+				await System.IO.File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content, cancellationToken).ConfigureAwait(false);
 			}
 
 
@@ -222,7 +226,7 @@ namespace RefreshResources
 					.Replace("\r\n", "\n")
 					.Replace("\n", desiredLineEnding);
 
-				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content, cancellationToken).ConfigureAwait(false);
+				await System.IO.File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content, cancellationToken).ConfigureAwait(false);
 			}
 
 
@@ -230,7 +234,7 @@ namespace RefreshResources
 			// STEP 4 - Make sure the addins referenced in the build script are up to date
 			var buildScriptFilePath = Path.Combine(SOURCE_FOLDER, "build.cake");
 
-			var buildScriptContent = await File.ReadAllTextAsync(buildScriptFilePath, cancellationToken).ConfigureAwait(false);
+			var buildScriptContent = await System.IO.File.ReadAllTextAsync(buildScriptFilePath, cancellationToken).ConfigureAwait(false);
 			buildScriptContent = buildScriptContent.Replace(Environment.NewLine, "\n");  // '\n' is the EOL for regex 
 
 			var addinsMatchResults = _addinReferenceRegex.Matches(buildScriptContent);
@@ -251,7 +255,7 @@ namespace RefreshResources
 			updatedBuildScriptContent = _loadReferenceRegex.Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
 			updatedBuildScriptContent = updatedBuildScriptContent.Replace("\n", Environment.NewLine);
 
-			await File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent, cancellationToken).ConfigureAwait(false);
+			await System.IO.File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent, cancellationToken).ConfigureAwait(false);
 
 
 			//==================================================
@@ -423,7 +427,7 @@ namespace RefreshResources
 
 			foreach (var sourceFile in resourceFiles)
 			{
-				var fileContent = await File.ReadAllTextAsync(sourceFile.FullName).ConfigureAwait(false);
+				var fileContent = await System.IO.File.ReadAllTextAsync(sourceFile.FullName).ConfigureAwait(false);
 				var sourceContent = fileContent
 					.Replace("%%PROJECT-NAME%%", project.GitHubRepoName)
 					.Replace("%%BUILD-TARGET-NAME%%", buildTargetName)
@@ -444,7 +448,7 @@ namespace RefreshResources
 				{
 					modifiedFiles.Add(destinationName);
 					if (!Directory.Exists(destinationFolder)) Directory.CreateDirectory(destinationFolder);
-					await File.WriteAllTextAsync(destinationPath, sourceContent).ConfigureAwait(false);
+					await System.IO.File.WriteAllTextAsync(destinationPath, sourceContent).ConfigureAwait(false);
 				}
 			}
 
@@ -495,7 +499,7 @@ namespace RefreshResources
 				return false;
 
 			var sourceContent = Encoding.UTF8.GetBytes(content);
-			var destinationContent = File.ReadAllBytes(destination.FullName);
+			var destinationContent = System.IO.File.ReadAllBytes(destination.FullName);
 
 			var areEqual = new ReadOnlySpan<byte>(sourceContent).SequenceEqual(destinationContent);
 
@@ -667,7 +671,7 @@ namespace RefreshResources
 
 					// Add sample to ZoomNet unit testing repository
 					var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\WebhookData\\{ev.EventName}.json";
-					if (!File.Exists(samplePath))
+					if (!System.IO.File.Exists(samplePath))
 					{
 						var sample = ev.Sample
 							.TrimStart('\"')
@@ -675,7 +679,7 @@ namespace RefreshResources
 							.Replace("\\t", "\t")
 							.Replace("\\\"", "\"")
 							.TrimEnd('\"');
-						File.WriteAllText(samplePath, sample);
+						System.IO.File.WriteAllText(samplePath, sample);
 						sampleFilesCreated++;
 
 						var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
@@ -765,6 +769,108 @@ namespace RefreshResources
 			}
 
 			return [];
+		}
+
+		private static async Task CheckZoomChangeLog(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		{
+			var repoOwner = "jericho";
+			var repoName = "zoomnet";
+
+			var request = new RepositoryIssueRequest()
+			{
+				Creator = repoOwner,
+				State = ItemStateFilter.All,
+				SortProperty = IssueSort.Created,
+				SortDirection = SortDirection.Descending
+			};
+
+			var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoName, request).ConfigureAwait(false);
+
+			// There are about 450 items in the changelog
+			// If you attemp to create/update 450 issues in the GitHub repo, we will most certainly trigger GitHub's abuse detection.
+			// The solution is to create a small number of issues every time we run 'RefreshResources'
+			var remainingCount = 10;
+
+			await foreach (var changeLog in GetZoomChangeLog(cancellationToken).OrderBy(l => l.ReleaseDate))
+			{
+				var releaseDate = changeLog.ReleaseDate.ToString("yyy-MM-dd");
+				var issueTitle = $"Zoom Change log: {changeLog.Title}";
+
+				var issueBody = new StringBuilder();
+				issueBody.AppendLine("This issue documents an entry in Zoom's published change log which may (or may not) require a change in the ZoomNet library.");
+				issueBody.AppendLine("Someone needs to validate what changes (if any) need to be made to the ZoomeNet library.");
+				issueBody.AppendLine("If it is determined that no change is necessary, feel free to close this issue.");
+				issueBody.AppendLine();
+				issueBody.AppendLine($"The change was published on {releaseDate}.");
+				issueBody.AppendLine();
+				issueBody.AppendLine("SUMMARY:");
+				issueBody.AppendLine(changeLog.Description);
+				issueBody.AppendLine();
+				issueBody.AppendLine($"[More details]({changeLog.FullPath})");
+
+				var issue = issues.FirstOrDefault(i => i.Title.Equals(issueTitle, StringComparison.OrdinalIgnoreCase));
+				if (issue == null)
+				{
+					var newIssue = new NewIssue(issueTitle)
+					{
+						Body = issueBody.ToString()
+					};
+					issue = await githubClient.Issue.Create(repoOwner, repoName, newIssue).ConfigureAwait(false);
+					Console.WriteLine($"Issue created: {issue.HtmlUrl}");
+
+					--remainingCount;
+				}
+				//else
+				//{
+				//	var issueUpdate = issue.ToUpdate();
+				//	issueUpdate.Body = issueBody.ToString();
+				//	issue = await githubClient.Issue.Update(repoOwner, repoName, issue.Number, issueUpdate).ConfigureAwait(false);
+				//	Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
+				//}
+
+				if (remainingCount <= 0) break;
+			}
+		}
+
+		private static async IAsyncEnumerable<(string FullPath, DateOnly ReleaseDate, string Title, string Description)> GetZoomChangeLog([EnumeratorCancellation] CancellationToken cancellationToken)
+		{
+			var htmlParser = new HtmlWeb();
+			var htmlDoc = await htmlParser.LoadFromWebAsync($"https://developers.zoom.us/changelog", cancellationToken).ConfigureAwait(false);
+			var data = htmlDoc.DocumentNode
+				.SelectNodes("//script")
+				.Where(n => n.Id == "__NEXT_DATA__")
+				.Single()
+				.InnerHtml;
+
+			var jsonRootElement = JsonDocument.Parse(data).RootElement;
+			var changeLogs = jsonRootElement
+				.GetProperty("props")
+				.GetProperty("pageProps")
+				.GetProperty("changelogs");
+
+			foreach (var change in changeLogs.EnumerateArray())
+			{
+				if (cancellationToken.IsCancellationRequested) yield break;
+
+				var fullPath = $"https://developers.zoom.us{change.GetProperty("fullPath").GetString()}";
+				var frontMatter = change.GetProperty("frontmatter");
+				var releaseDate = DateOnly.Parse(frontMatter.GetProperty("release_date").GetString());
+				var title = frontMatter.GetProperty("title").GetString();
+				var description = frontMatter.GetProperty("description").GetString();
+
+				var markdown = $"{releaseDate.ToShortDateString()} - [{title}]({fullPath})";
+
+				var tags = frontMatter
+					.GetProperty("tags")
+					.EnumerateArray()
+					.Select(tag => tag.GetProperty("value").GetString())
+					.ToArray();
+
+				if (tags.Contains("api-release"))
+				{
+					yield return (fullPath, releaseDate, title, description);
+				}
+			}
 		}
 	}
 }
