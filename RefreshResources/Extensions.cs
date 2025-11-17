@@ -62,8 +62,8 @@ namespace RefreshResources
 		public static T DeserializeAnonymousType<T>(string json, T anonymousTypeObject, JsonSerializerOptions options = default)
 			=> JsonSerializer.Deserialize<T>(json, options);
 
-		public static ValueTask<TValue> DeserializeAnonymousTypeAsync<TValue>(Stream stream, TValue anonymousTypeObject, JsonSerializerOptions options = default, CancellationToken cancellationToken = default)
-			=> JsonSerializer.DeserializeAsync<TValue>(stream, options, cancellationToken);
+		public static ValueTask<T> DeserializeAnonymousTypeAsync<T>(Stream stream, T anonymousTypeObject, JsonSerializerOptions options = default, CancellationToken cancellationToken = default)
+			=> JsonSerializer.DeserializeAsync<T>(stream, options, cancellationToken);
 
 		/// <summary>
 		/// Ensure that a string ends with a given suffix.
