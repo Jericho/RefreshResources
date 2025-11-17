@@ -786,9 +786,9 @@ namespace RefreshResources
 
 			var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoName, request).ConfigureAwait(false);
 
-			// There are about 450 items in the changelog
+			// There are about 450 items in the changelog.
 			// If you attemp to create/update 450 issues in the GitHub repo, we will most certainly trigger GitHub's abuse detection.
-			// The solution is to create a small number of issues every time we run 'RefreshResources'
+			// The solution is to create a limited number of issues every time we run 'RefreshResources'.
 			var remainingCount = 10;
 
 			await foreach (var changeLog in GetZoomChangeLog(cancellationToken).OrderBy(l => l.ReleaseDate))
