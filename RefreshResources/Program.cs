@@ -202,7 +202,7 @@ namespace RefreshResources
 					.Replace("# End of https://www.toptal.com/developers/gitignore/api/visualstudio", "# WinMerge\n*.bak\n\n# End of https://www.toptal.com/developers/gitignore/api/visualstudio")
 					.Replace("\n", Environment.NewLine);
 
-				await System.IO.File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content, cancellationToken).ConfigureAwait(false);
+				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, ".gitignore"), content, cancellationToken).ConfigureAwait(false);
 			}
 
 
@@ -226,7 +226,7 @@ namespace RefreshResources
 					.Replace("\r\n", "\n")
 					.Replace("\n", desiredLineEnding);
 
-				await System.IO.File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content, cancellationToken).ConfigureAwait(false);
+				await File.WriteAllTextAsync(Path.Combine(SOURCE_FOLDER, destinationFileName), content, cancellationToken).ConfigureAwait(false);
 			}
 
 
@@ -234,7 +234,7 @@ namespace RefreshResources
 			// STEP 4 - Make sure the addins referenced in the build script are up to date
 			var buildScriptFilePath = Path.Combine(SOURCE_FOLDER, "build.cake");
 
-			var buildScriptContent = await System.IO.File.ReadAllTextAsync(buildScriptFilePath, cancellationToken).ConfigureAwait(false);
+			var buildScriptContent = await File.ReadAllTextAsync(buildScriptFilePath, cancellationToken).ConfigureAwait(false);
 			buildScriptContent = buildScriptContent.Replace(Environment.NewLine, "\n");  // '\n' is the EOL for regex 
 
 			var addinsMatchResults = _addinReferenceRegex.Matches(buildScriptContent);
@@ -255,7 +255,7 @@ namespace RefreshResources
 			updatedBuildScriptContent = _loadReferenceRegex.Replace(updatedBuildScriptContent, match => GetPackageReferenceWithLatestVersion(match, referencesInfo));
 			updatedBuildScriptContent = updatedBuildScriptContent.Replace("\n", Environment.NewLine);
 
-			await System.IO.File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent, cancellationToken).ConfigureAwait(false);
+			await File.WriteAllTextAsync(buildScriptFilePath, updatedBuildScriptContent, cancellationToken).ConfigureAwait(false);
 
 
 			//==================================================
@@ -427,7 +427,7 @@ namespace RefreshResources
 
 			foreach (var sourceFile in resourceFiles)
 			{
-				var fileContent = await System.IO.File.ReadAllTextAsync(sourceFile.FullName).ConfigureAwait(false);
+				var fileContent = await File.ReadAllTextAsync(sourceFile.FullName).ConfigureAwait(false);
 				var sourceContent = fileContent
 					.Replace("%%PROJECT-NAME%%", project.GitHubRepoName)
 					.Replace("%%BUILD-TARGET-NAME%%", buildTargetName)
@@ -448,7 +448,7 @@ namespace RefreshResources
 				{
 					modifiedFiles.Add(destinationName);
 					if (!Directory.Exists(destinationFolder)) Directory.CreateDirectory(destinationFolder);
-					await System.IO.File.WriteAllTextAsync(destinationPath, sourceContent).ConfigureAwait(false);
+					await File.WriteAllTextAsync(destinationPath, sourceContent).ConfigureAwait(false);
 				}
 			}
 
@@ -499,7 +499,7 @@ namespace RefreshResources
 				return false;
 
 			var sourceContent = Encoding.UTF8.GetBytes(content);
-			var destinationContent = System.IO.File.ReadAllBytes(destination.FullName);
+			var destinationContent = File.ReadAllBytes(destination.FullName);
 
 			var areEqual = new ReadOnlySpan<byte>(sourceContent).SequenceEqual(destinationContent);
 
@@ -671,7 +671,7 @@ namespace RefreshResources
 
 					// Add sample to ZoomNet unit testing repository
 					var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\WebhookData\\{ev.EventName}.json";
-					if (!System.IO.File.Exists(samplePath))
+					if (!File.Exists(samplePath))
 					{
 						var sample = ev.Sample
 							.TrimStart('\"')
@@ -679,7 +679,7 @@ namespace RefreshResources
 							.Replace("\\t", "\t")
 							.Replace("\\\"", "\"")
 							.TrimEnd('\"');
-						System.IO.File.WriteAllText(samplePath, sample);
+						File.WriteAllText(samplePath, sample);
 						sampleFilesCreated++;
 
 						var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
