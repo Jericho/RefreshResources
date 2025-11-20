@@ -85,10 +85,10 @@ namespace RefreshResources
 					var credentials = !string.IsNullOrEmpty(GITHUB_TOKEN) ? new Octokit.Credentials(GITHUB_TOKEN) : new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
 					var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
 
-					await RefreshGithubLabels(githubClient).ConfigureAwait(false);
+					//await RefreshGithubLabels(githubClient).ConfigureAwait(false);
 					await RefreshSendGridWebHookList(githubClient).ConfigureAwait(false);
-					await RefreshResourcesAsync().ConfigureAwait(false);
-					await CopyResourceFiles().ConfigureAwait(false);
+					//await RefreshResourcesAsync().ConfigureAwait(false);
+					//await CopyResourceFiles().ConfigureAwait(false);
 
 					// Commented out because I don't want 450 new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
@@ -709,7 +709,7 @@ namespace RefreshResources
 
 			Console.WriteLine($"{sampleFilesCreated} sample files were created");
 
-			resxDoc.Save(resxPath);
+			SaveResxFile(resxDoc, resxPath);
 
 			var grandTotalEvents = allEvents.Sum(g => g.Events.Length) + 1; // +1 because of endpoint.url_validation
 			var grantTotalHandled = allEvents.Sum(g => g.Events.Count(ev => ev.IsHandled)) + 1; // +1 because of endpoint.url_validation
@@ -745,6 +745,28 @@ namespace RefreshResources
 			}
 		}
 
+		/// <summary>
+		/// Saves the specified XML resource document to a .resx file at the given path using UTF-8 encoding without BOM.
+		/// </summary>
+		/// <remarks>The point of this method is to avoid using the XmlDocument.Save(string) because it includes the BOM.</remarks>
+		/// <param name="resxDoc">The XML document containing the resources to be saved. Cannot be null.</param>
+		/// <param name="resxPath">The file path where the .resx file will be written. Cannot be null or empty.</param>
+		private static void SaveResxFile(XmlDocument resxDoc, string resxPath)
+		{
+			// Create XmlWriterSettings with UTF-8 encoding (no BOM)
+			var settings = new XmlWriterSettings
+			{
+				Encoding = new UTF8Encoding(false), // UTF-8 without BOM
+				Indent = true,
+				NewLineOnAttributes = false
+			};
+
+			// Save using XmlWriter
+			using (XmlWriter writer = XmlWriter.Create(resxPath, settings))
+			{
+				resxDoc.Save(writer);
+			}
+		}
 		private static async Task<(string Title, string Group, string Name, string Sample)[]> GetSendGridWebhookList(string title, string group, CancellationToken cancellationToken)
 		{
 			var url = $"https://developers.zoom.us/api-hub/{group}/events/webhooks.json";
