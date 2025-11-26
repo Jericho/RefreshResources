@@ -75,16 +75,7 @@ Task("Run")
 	.IsDependentOn("Publish")
 	.Does(() =>
 {
-	var processResult = StartProcess(
-		new FilePath($"{outputDir}{appName}.exe"),
-		new ProcessSettings()
-		{
-			Arguments = "nopause" + (cleanTools ? " cleantools" : "")
-		});
-	if (processResult != 0)
-	{
-		throw new Exception($"{appName} did not complete successfully. Result code: {processResult}");
-	}
+	Context.ExecuteCommand(new FilePath($"{outputDir}{appName}.exe"), "nopause" + (cleanTools ? " cleantools" : ""));
 });
 
 
@@ -101,3 +92,34 @@ Task("Default")
 ///////////////////////////////////////////////////////////////////////////////
 
 RunTarget(target);
+
+
+///////////////////////////////////////////////////////////////////////////////
+// PRIVATE METHODS
+///////////////////////////////////////////////////////////////////////////////
+static List<string> ExecuteCommand(this ICakeContext context, FilePath exe, string args, bool captureStandardOutput = false)
+{
+	using (context.DiagnosticVerbosity())
+	{
+		var processResult = context.StartProcess(
+			exe,
+			new ProcessSettings()
+			{
+				Arguments = args,
+				RedirectStandardOutput = captureStandardOutput,
+				RedirectStandardError= true
+			},
+			out var redirectedOutput,
+			out var redirectedError
+		);
+		
+		if (processResult != 0 || redirectedError.Count() > 0)
+		{
+			var errorMsg = string.Join(Environment.NewLine, redirectedError.Where(s => !string.IsNullOrWhiteSpace(s)));
+			var innerException = !string.IsNullOrEmpty(errorMsg) ? new Exception(errorMsg) : null;
+			throw new Exception($"{exe} did not complete successfully. Result code: {processResult}", innerException);
+		}
+		
+		return (redirectedOutput ?? Array.Empty<string>()).ToList();
+	}
+}
