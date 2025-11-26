@@ -75,7 +75,10 @@ Task("Run")
 	.IsDependentOn("Publish")
 	.Does(() =>
 {
-	Context.ExecuteCommand(new FilePath($"{outputDir}{appName}.exe"), "nopause" + (cleanTools ? " cleantools" : ""));
+	var args = new ProcessArgumentBuilder() .Append("nopause");
+	if (cleanTools) args.Append("cleantools");
+
+	Context.ExecuteCommand(new FilePath($"{outputDir}{appName}.exe"), args);
 });
 
 
@@ -97,7 +100,13 @@ RunTarget(target);
 ///////////////////////////////////////////////////////////////////////////////
 // PRIVATE METHODS
 ///////////////////////////////////////////////////////////////////////////////
+
 static List<string> ExecuteCommand(this ICakeContext context, FilePath exe, string args, bool captureStandardOutput = false)
+{
+	return context.ExecuteCommand(exe, new ProcessArgumentBuilder().Append(args), captureStandardOutput);
+}
+
+static List<string> ExecuteCommand(this ICakeContext context, FilePath exe, ProcessArgumentBuilder argsBuilder, bool captureStandardOutput = false)
 {
 	using (context.DiagnosticVerbosity())
 	{
@@ -105,7 +114,7 @@ static List<string> ExecuteCommand(this ICakeContext context, FilePath exe, stri
 			exe,
 			new ProcessSettings()
 			{
-				Arguments = args,
+				Arguments = argsBuilder,
 				RedirectStandardOutput = captureStandardOutput,
 				RedirectStandardError= true
 			},
