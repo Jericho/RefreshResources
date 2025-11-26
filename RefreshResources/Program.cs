@@ -85,10 +85,10 @@ namespace RefreshResources
 					var credentials = !string.IsNullOrEmpty(GITHUB_TOKEN) ? new Octokit.Credentials(GITHUB_TOKEN) : new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
 					var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
 
-					//await RefreshGithubLabels(githubClient).ConfigureAwait(false);
+					await RefreshGithubLabels(githubClient).ConfigureAwait(false);
 					await RefreshSendGridWebHookList(githubClient).ConfigureAwait(false);
-					//await RefreshResourcesAsync().ConfigureAwait(false);
-					//await CopyResourceFiles().ConfigureAwait(false);
+					await RefreshResourcesAsync().ConfigureAwait(false);
+					await CopyResourceFiles().ConfigureAwait(false);
 
 					// Commented out because I don't want 450 new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
