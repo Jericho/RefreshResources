@@ -86,9 +86,10 @@ namespace RefreshResources
 					var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
 
 					await RefreshGithubLabels(githubClient).ConfigureAwait(false);
-					await RefreshSendGridWebHookList(githubClient).ConfigureAwait(false);
 					await RefreshResourcesAsync().ConfigureAwait(false);
 					await CopyResourceFiles().ConfigureAwait(false);
+
+					await RefreshSendGridWebHookList(githubClient).ConfigureAwait(false);
 
 					// Commented out because I don't want 450 new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
@@ -623,7 +624,7 @@ namespace RefreshResources
 				.Union(mailEvents)
 				.Union(calendarEvents)
 				.Union(roomsEvents)
-				.Union(roomsEvents)
+				.Union(whiteboardEvents)
 				.Union(chatbotEvents)
 				.Union(schedulerEvents)
 				.Union(contactCenterEvents)
@@ -767,6 +768,7 @@ namespace RefreshResources
 				resxDoc.Save(writer);
 			}
 		}
+
 		private static async Task<(string Title, string Group, string Name, string Sample)[]> GetSendGridWebhookList(string title, string group, CancellationToken cancellationToken)
 		{
 			var url = $"https://developers.zoom.us/api-hub/{group}/events/webhooks.json";
