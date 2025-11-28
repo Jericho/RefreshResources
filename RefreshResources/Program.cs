@@ -18,6 +18,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
 using System.Xml;
+using FileMode = System.IO.FileMode;
 
 namespace RefreshResources
 {
@@ -33,6 +34,12 @@ namespace RefreshResources
 		private static readonly Regex _loadReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "(load|l)"), RegexOptions.Compiled | RegexOptions.Multiline);
 
 		private const string ADDIN_REFERENCE_REGEX = "(?<lineprefix>.*)(?<packageprefix>\\#{0}) (?<scheme>(nuget|dotnet)):(?<separator1>\"?)(?<packagerepository>.*)\\?(?<referencestring>.*?(?=(?:[\"| ])|$))(?<separator2>\"?)(?<separator3> ?)(?<linepostfix>.*?$)";
+
+		private static Regex _httpGetRegex = new Regex("\\.GetAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static Regex _httpPostRegex = new Regex("\\.PostAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static Regex _httpPatchRegex = new Regex("\\.PatchAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static Regex _httpPutRegex = new Regex("\\.PutAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static Regex _httpDeleteRegex = new Regex("\\.DeleteAsync\\((.*)\\)", RegexOptions.Compiled);
 
 		private enum ProjectType
 		{
@@ -90,6 +97,7 @@ namespace RefreshResources
 					await CopyResourceFiles().ConfigureAwait(false);
 
 					await RefreshSendGridWebHookList(githubClient).ConfigureAwait(false);
+					await RefreshSendGridEndpointsList(githubClient).ConfigureAwait(false);
 
 					// Commented out because I don't want 450 new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
@@ -586,10 +594,11 @@ namespace RefreshResources
 			Console.WriteLine("***** SendGrid Webhooks list *****");
 
 			var repoOwner = "jericho";
-			var repoName = "ZoomNet";
+			var repoNameSource = "ZoomNet"; // Repo where we fetch EventType.cs
+			var repoNameDestination = "ZoomNet"; // Repo where we create/update the issue. Use "_testing" for testing and "ZoomNet" for production.
 
-			var resourcePath = $"/Source/{repoName}/Models/Webhooks/EventType.cs";
-			var contents = await githubClient.Repository.Content.GetAllContents(repoOwner, repoName, resourcePath).ConfigureAwait(false);
+			var resourcePath = $"/Source/{repoNameSource}/Models/Webhooks/EventType.cs";
+			var contents = await githubClient.Repository.Content.GetAllContents(repoOwner, repoNameSource, resourcePath).ConfigureAwait(false);
 			var eventTypeCSharpSource = contents[0].Content;
 
 			var meetingEvents = await GetSendGridWebhookList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
@@ -641,11 +650,14 @@ namespace RefreshResources
 				.Union(videoSdkEvents)
 				.Union(cobrowseSdkEvents)
 				.Union(appsEvents)
-				.GroupBy(
-					ev => new { ev.Title, ev.Group },
-					ev => new { EventName = ev.Name, IsHandled = eventTypeCSharpSource.Contains(ev.Name), ev.Sample },
-					(key, items) => new { Key = key, Events = items.ToArray() })
-				.ToArray();
+				.Select(ev => new
+				{
+					ev.Title,
+					ev.Group,
+					EventName = ev.Name,
+					IsHandled = eventTypeCSharpSource.Contains(ev.Name),
+					ev.Sample
+				});
 
 			var issueTitle = "List of Webhook events";
 			var issueBody = new StringBuilder();
@@ -657,15 +669,15 @@ namespace RefreshResources
 			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
 			var sampleFilesCreated = 0;
 
-			foreach (var grp in allEvents)
+			foreach (var evGrp in allEvents.GroupBy(ev => new { ev.Title, ev.Group }))
 			{
 				issueBody.AppendLine();
 				issueBody.AppendLine("<details>");
-				issueBody.AppendLine($"<summary>{grp.Key.Title} ({grp.Events.Count(ev => ev.IsHandled)}/{grp.Events.Length})</summary>");
+				issueBody.AppendLine($"<summary>{evGrp.Key.Title} ({evGrp.Count(ev => ev.IsHandled)}/{evGrp.Count()})</summary>");
 				issueBody.AppendLine();
-				issueBody.AppendLine($"[Documentation](https://developers.zoom.us/docs/api/{grp.Key.Group}/events/)");
+				issueBody.AppendLine($"[Documentation](https://developers.zoom.us/docs/api/{evGrp.Key.Group}/events/)");
 				issueBody.AppendLine();
-				foreach (var ev in grp.Events)
+				foreach (var ev in evGrp)
 				{
 					var checkState = ev.IsHandled ? "x" : " ";
 					issueBody.AppendLine($"- [{checkState}] {ev.EventName}");
@@ -712,8 +724,8 @@ namespace RefreshResources
 
 			SaveResxFile(resxDoc, resxPath);
 
-			var grandTotalEvents = allEvents.Sum(g => g.Events.Length) + 1; // +1 because of endpoint.url_validation
-			var grantTotalHandled = allEvents.Sum(g => g.Events.Count(ev => ev.IsHandled)) + 1; // +1 because of endpoint.url_validation
+			var grandTotalEvents = allEvents.Count() + 1; // +1 because of endpoint.url_validation
+			var grantTotalHandled = allEvents.Count(ev => ev.IsHandled) + 1; // +1 because of endpoint.url_validation
 
 			issueBody.AppendLine();
 			issueBody.Append($"There is a grand total of {grandTotalEvents} events and ZoomNet can handle {grantTotalHandled} of them.");
@@ -726,7 +738,7 @@ namespace RefreshResources
 				SortDirection = SortDirection.Descending
 			};
 
-			var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoName, request).ConfigureAwait(false);
+			var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoNameDestination, request).ConfigureAwait(false);
 			var issue = issues.FirstOrDefault(i => i.Title.Equals(issueTitle, StringComparison.OrdinalIgnoreCase));
 			if (issue == null)
 			{
@@ -734,14 +746,14 @@ namespace RefreshResources
 				{
 					Body = issueBody.ToString()
 				};
-				issue = await githubClient.Issue.Create(repoOwner, repoName, newIssue).ConfigureAwait(false);
+				issue = await githubClient.Issue.Create(repoOwner, repoNameDestination, newIssue).ConfigureAwait(false);
 				Console.WriteLine($"Issue created: {issue.HtmlUrl}");
 			}
 			else
 			{
 				var issueUpdate = issue.ToUpdate();
 				issueUpdate.Body = issueBody.ToString();
-				issue = await githubClient.Issue.Update(repoOwner, repoName, issue.Number, issueUpdate).ConfigureAwait(false);
+				issue = await githubClient.Issue.Update(repoOwner, repoNameDestination, issue.Number, issueUpdate).ConfigureAwait(false);
 				Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
 			}
 		}
@@ -895,6 +907,241 @@ namespace RefreshResources
 					yield return (fullPath, releaseDate, title, description);
 				}
 			}
+		}
+
+		private static async Task RefreshSendGridEndpointsList(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		{
+			Console.WriteLine();
+			Console.WriteLine("***** SendGrid Endpoints list *****");
+
+			var repoOwner = "jericho";
+			var repoNameDestination = "ZoomNet"; // Repo where we create/update the issue. Use "_testing" for testing and "ZoomNet" for production.
+
+			var meetingEndpoints = await GetSendGridEndpointsList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
+			var teamChatEndpoints = await GetSendGridEndpointsList("Team Chat", "team-chat", cancellationToken).ConfigureAwait(false);
+			var phoneEndpoints = await GetSendGridEndpointsList("Phone", "phone", cancellationToken).ConfigureAwait(false);
+			var mailEndpoints = await GetSendGridEndpointsList("Mail", "mail", cancellationToken).ConfigureAwait(false);
+			var calendarEndpoints = await GetSendGridEndpointsList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
+			var schedulerEndpoints = await GetSendGridEndpointsList("Scheduler", "scheduler", cancellationToken).ConfigureAwait(false);
+			var roomsEndpoints = await GetSendGridEndpointsList("Rooms", "rooms", cancellationToken).ConfigureAwait(false);
+			var clipsEndpoints = await GetSendGridEndpointsList("Clips", "clips", cancellationToken).ConfigureAwait(false);
+			var whiteboardEndpoints = await GetSendGridEndpointsList("Whiteboard", "whiteboard", cancellationToken).ConfigureAwait(false);
+			var crcEndpoints = await GetSendGridEndpointsList("CRC", "crc", cancellationToken).ConfigureAwait(false);
+			var chatbotEndpoints = await GetSendGridEndpointsList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
+			var aiCompanionEndpoints = await GetSendGridEndpointsList("AI Companion", "ai-companion", cancellationToken).ConfigureAwait(false);
+			var docsEndpoints = await GetSendGridEndpointsList("Zoom Docs", "zoom-docs", cancellationToken).ConfigureAwait(false);
+			var contactCenterEndpoints = await GetSendGridEndpointsList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
+			var eventsEndpoints = await GetSendGridEndpointsList("Webinar Plus & Events", "events", cancellationToken).ConfigureAwait(false);
+			var virtualAgentEndpoints = await GetSendGridEndpointsList("Virtual Agent", "virtual-agent", cancellationToken).ConfigureAwait(false);
+			var iqEndpoints = await GetSendGridEndpointsList("Revenue Accelerator", "iq", cancellationToken).ConfigureAwait(false);
+			var numberManagementEndpoints = await GetSendGridEndpointsList("Number Management", "number-management", cancellationToken).ConfigureAwait(false);
+			var qualityManagementEndpoints = await GetSendGridEndpointsList("Quality Management", "quality-management", cancellationToken).ConfigureAwait(false);
+			var workforceManagementEndpoints = await GetSendGridEndpointsList("Workforce Management", "workforce-management", cancellationToken).ConfigureAwait(false);
+			var commerceManagementEndpoints = await GetSendGridEndpointsList("Commerce", "commerce", cancellationToken).ConfigureAwait(false);
+			var healthcareEndpoints = await GetSendGridEndpointsList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
+			var videoManagementEndpoints = await GetSendGridEndpointsList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
+			var autoDialerEndpoints = await GetSendGridEndpointsList("Auto Dialer", "auto-dialer", cancellationToken).ConfigureAwait(false);
+			var usersEndpoints = await GetSendGridEndpointsList("Users", "users", cancellationToken).ConfigureAwait(false);
+			var accountsEndpoints = await GetSendGridEndpointsList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
+			var qssEndpoints = await GetSendGridEndpointsList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
+			var scim2Endpoints = await GetSendGridEndpointsList("SCIM 2", "scim2", cancellationToken).ConfigureAwait(false);
+			var videoSdkEndpoints = await GetSendGridEndpointsList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
+			var cobrowseSdkEndpoints = await GetSendGridEndpointsList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
+			var appsEndpoints = await GetSendGridEndpointsList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
+
+			var handledEndpoints = GetAllHandledEndpoints();
+
+			var allEndpoints = meetingEndpoints
+				.Union(teamChatEndpoints)
+				.Union(phoneEndpoints)
+				.Union(mailEndpoints)
+				.Union(calendarEndpoints)
+				.Union(schedulerEndpoints)
+				.Union(roomsEndpoints)
+				.Union(clipsEndpoints)
+				.Union(whiteboardEndpoints)
+				.Union(crcEndpoints)
+				.Union(chatbotEndpoints)
+				.Union(aiCompanionEndpoints)
+				.Union(docsEndpoints)
+				.Union(contactCenterEndpoints)
+				.Union(eventsEndpoints)
+				.Union(virtualAgentEndpoints)
+				.Union(iqEndpoints)
+				.Union(numberManagementEndpoints)
+				.Union(qualityManagementEndpoints)
+				.Union(workforceManagementEndpoints)
+				.Union(commerceManagementEndpoints)
+				.Union(healthcareEndpoints)
+				.Union(videoManagementEndpoints)
+				.Union(autoDialerEndpoints)
+				.Union(usersEndpoints)
+				.Union(accountsEndpoints)
+				.Union(qssEndpoints)
+				.Union(scim2Endpoints)
+				.Union(videoSdkEndpoints)
+				.Union(cobrowseSdkEndpoints)
+				.Union(appsEndpoints)
+				.Select(ep => new
+				{
+					ep.Title,
+					ep.Group,
+					ep.Name,
+					ep.HttpVerb,
+					ep.Summary,
+					ep.Tag,
+					IsHandled = IsEndpointHandledAsync(handledEndpoints, ep.Name, ep.HttpVerb)
+				});
+
+			var issueTitle = "List of Endpoints";
+			var issueBody = new StringBuilder();
+			issueBody.Append("This issue documents the full list of endpoints in the SendGrid API and also tracks which ones can be handled by the ZoomNet library.");
+
+			foreach (var epGrp in allEndpoints.GroupBy(ep => new { ep.Title, ep.Group }))
+			{
+				issueBody.AppendLine();
+				issueBody.AppendLine("<details>");
+				issueBody.AppendLine($"<summary>{epGrp.Key.Title} ({epGrp.Count(ep => ep.IsHandled)}/{epGrp.Count()})</summary>");
+				issueBody.AppendLine();
+				issueBody.AppendLine($"[Documentation](https://developers.zoom.us/docs/api/{epGrp.Key.Group}/)");
+
+				foreach (var tagGrp in epGrp.GroupBy(ep => ep.Tag))
+				{
+					issueBody.AppendLine();
+					issueBody.AppendLine(tagGrp.Key);
+					issueBody.AppendLine();
+					foreach (var ep in tagGrp)
+					{
+						var checkState = ep.IsHandled ? "x" : " ";
+						issueBody.AppendLine($"- [{checkState}] {ep.Summary}");
+					}
+				}
+				issueBody.AppendLine("</details>");
+			}
+
+			var grandTotalEndpoints = allEndpoints.Count();
+			var grantTotalHandled = allEndpoints.Count(ep => ep.IsHandled);
+
+			issueBody.AppendLine();
+			issueBody.Append($"There is a grand total of {grandTotalEndpoints} endpoints and ZoomNet can handle {grantTotalHandled} of them.");
+
+			var request = new RepositoryIssueRequest()
+			{
+				Creator = repoOwner,
+				State = ItemStateFilter.Open,
+				SortProperty = IssueSort.Created,
+				SortDirection = SortDirection.Descending
+			};
+
+			var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoNameDestination, request).ConfigureAwait(false);
+			var issue = issues.FirstOrDefault(i => i.Title.Equals(issueTitle, StringComparison.OrdinalIgnoreCase));
+			if (issue == null)
+			{
+				var newIssue = new NewIssue(issueTitle)
+				{
+					Body = issueBody.ToString()
+				};
+				issue = await githubClient.Issue.Create(repoOwner, repoNameDestination, newIssue).ConfigureAwait(false);
+				Console.WriteLine($"Issue created: {issue.HtmlUrl}");
+			}
+			else
+			{
+				var issueUpdate = issue.ToUpdate();
+				issueUpdate.Body = issueBody.ToString();
+				issue = await githubClient.Issue.Update(repoOwner, repoNameDestination, issue.Number, issueUpdate).ConfigureAwait(false);
+				Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
+			}
+		}
+
+		private static async Task<(string Title, string Group, string Name, string HttpVerb, string Summary, string Tag)[]> GetSendGridEndpointsList(string title, string group, CancellationToken cancellationToken)
+		{
+			var url = $"https://developers.zoom.us/api-hub/{group}/methods/endpoints.json";
+			using HttpClient client = new();
+
+			var httpResponse = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
+			if (httpResponse.IsSuccessStatusCode)
+			{
+				var jsonContent = await httpResponse.Content.ReadAsStringAsync(cancellationToken);
+				var jsonRootElement = JsonDocument.Parse(jsonContent).RootElement;
+
+				if (jsonRootElement.TryGetProperty("paths", out JsonElement jsonPaths))
+				{
+					var endpoints = jsonPaths
+						.EnumerateObject()
+						.SelectMany(prop => prop.Value.EnumerateObject().Select(p => (
+							Title: title,
+							Group: group,
+							Name: prop.Name,
+							HttpVerb: p.Name,
+							Summary: p.Value.GetProperty("summary").GetString(),
+							Tag: p.Value.GetProperty("tags").EnumerateArray().First().GetString())))
+						.ToArray();
+
+					return endpoints;
+				}
+			}
+
+			return [];
+		}
+
+		private static (string Endpoint, string HttpVerb)[] GetAllHandledEndpoints()
+		{
+			const string sourcePath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet\\Resources\\";
+
+			var handledEndpoints = new List<(string EndpointName, string HttpVerb)>();
+			foreach (var filePath in Directory.GetFiles(sourcePath, "*.cs"))
+			{
+				using (FileStream fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan))
+				using (StreamReader streamReader = new StreamReader(fileStream))
+				{
+					string line;
+					while ((line = streamReader.ReadLine()) != null)
+					{
+						var endpoint = _httpGetRegex.Match(line).Groups[1]?.ToString();
+						if (!string.IsNullOrWhiteSpace(endpoint))
+						{
+							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+							handledEndpoints.Add((endpoint, "get"));
+						}
+
+						endpoint = _httpPostRegex.Match(line).Groups[1]?.ToString();
+						if (!string.IsNullOrWhiteSpace(endpoint))
+						{
+							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+							handledEndpoints.Add((endpoint, "post"));
+						}
+
+						endpoint = _httpPatchRegex.Match(line).Groups[1]?.ToString();
+						if (!string.IsNullOrWhiteSpace(endpoint))
+						{
+							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+							handledEndpoints.Add((endpoint, "patch"));
+						}
+
+						endpoint = _httpPutRegex.Match(line).Groups[1]?.ToString();
+						if (!string.IsNullOrWhiteSpace(endpoint))
+						{
+							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+							handledEndpoints.Add((endpoint, "put"));
+						}
+
+						endpoint = _httpDeleteRegex.Match(line).Groups[1]?.ToString();
+						if (!string.IsNullOrWhiteSpace(endpoint))
+						{
+							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+							handledEndpoints.Add((endpoint, "delete"));
+						}
+					}
+				}
+			}
+
+			return handledEndpoints.ToArray();
+		}
+
+		private static bool IsEndpointHandledAsync((string Endpoint, string HttpVerb)[] allHandledEndpoints, string endpoint, string httpVerb)
+		{
+			return allHandledEndpoints
+				.Any(ep => ep.Endpoint.Equals(endpoint.Trim('/'), StringComparison.OrdinalIgnoreCase) && ep.HttpVerb.Equals(httpVerb, StringComparison.OrdinalIgnoreCase));
 		}
 	}
 }
