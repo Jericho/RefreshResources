@@ -8,6 +8,7 @@ using Octokit;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Enumeration;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
@@ -1140,8 +1141,12 @@ namespace RefreshResources
 
 		private static bool IsEndpointHandledAsync((string Endpoint, string HttpVerb)[] allHandledEndpoints, string endpoint, string httpVerb)
 		{
+			// The regex exression to convert route parameters to wildcard patterns comes from here: https://stackoverflow.com/a/20702095
+			var expression = Regex.Replace(endpoint.Trim('/'), "(?<BRACE>\\{)([^\\}]*)(?<-BRACE>\\})", "{*}");
+
+			// The idea to use FileSystemName.MatchesSimpleExpression comes from here: https://stackoverflow.com/a/66465594
 			return allHandledEndpoints
-				.Any(ep => ep.Endpoint.Equals(endpoint.Trim('/'), StringComparison.OrdinalIgnoreCase) && ep.HttpVerb.Equals(httpVerb, StringComparison.OrdinalIgnoreCase));
+				.Any(ep => FileSystemName.MatchesSimpleExpression(expression, ep.Endpoint, true) && ep.HttpVerb.Equals(httpVerb, StringComparison.OrdinalIgnoreCase));
 		}
 	}
 }
