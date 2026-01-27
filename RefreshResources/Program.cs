@@ -1210,6 +1210,90 @@ namespace RefreshResources
 			return null;
 		}
 
+		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, OpenApiDocument doc)
+		{
+			var subschemas = schema.AllOf.Union(schema.OneOf);
+			return FlattenSchemas(schema, subschemas, doc);
+		}
+
+		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, IEnumerable<OpenApiSchema> subschemas, OpenApiDocument doc)
+		{
+			if (subschemas == null || subschemas.Count() == 0)
+				return schema;
+
+			var result = new OpenApiSchema
+			{
+				Type = schema.Type,
+				Format = schema.Format,
+				Description = schema.Description,
+				Nullable = schema.Nullable
+			};
+
+			var properties = new Dictionary<string, OpenApiSchema>();
+			var required = new HashSet<string>();
+
+			void MergeSchema(OpenApiSchema s)
+			{
+				// Resolve $ref
+				if (s.Reference != null)
+				{
+					s = doc.Components.Schemas[s.Reference.Id];
+				}
+
+				// Merge subschemas recursively
+				s = FlattenSchemas(s, doc);
+
+				if (s.Properties != null)
+				{
+					foreach (var kv in s.Properties)
+					{
+						properties[kv.Key] = kv.Value;
+					}
+				}
+
+				if (s.Required != null)
+				{
+					foreach (var r in s.Required)
+					{
+						required.Add(r);
+					}
+				}
+
+				// If result.Type is not set yet, inherit from this schema
+				if (string.IsNullOrEmpty(result.Type) && !string.IsNullOrEmpty(s.Type))
+				{
+					result.Type = s.Type;
+				}
+			}
+
+			// Merge all subschemas
+			foreach (var sub in subschemas)
+			{
+				MergeSchema(sub);
+			}
+
+			// Also merge properties directly on the parent schema (outside allOf)
+			if (schema.Properties != null)
+			{
+				foreach (var kv in schema.Properties)
+				{
+					properties[kv.Key] = kv.Value;
+				}
+			}
+			if (schema.Required != null)
+			{
+				foreach (var r in schema.Required)
+				{
+					required.Add(r);
+				}
+			}
+
+			result.Properties = properties;
+			result.Required = required.ToHashSet();
+
+			return result;
+		}
+
 		private static JsonNode GenerateSample(OpenApiSchema schema, OpenApiDocument doc)
 		{
 			// Resolve $ref
@@ -1217,6 +1301,9 @@ namespace RefreshResources
 			{
 				schema = doc.Components.Schemas[schema.Reference.Id];
 			}
+
+			// Flatten subschemas (such as AllOf and OneOf)
+			schema = FlattenSchemas(schema, doc);
 
 			if (schema.Example != null)
 			{
@@ -1241,8 +1328,11 @@ namespace RefreshResources
 		{
 			switch (example)
 			{
-				case OpenApiDateTime dt:
-					return JsonValue.Create(dt.Value.ToString("o"));
+				case OpenApiDateTime dateTime:
+					return JsonValue.Create(dateTime.Value.ToString("o"));
+
+				case OpenApiDate dateOnly:
+					return JsonValue.Create(dateOnly.Value.ToString("o"));
 
 				case OpenApiString s:
 					return JsonValue.Create(s.Value);
