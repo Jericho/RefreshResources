@@ -1,6 +1,9 @@
 using HtmlAgilityPack;
 using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
+using Microsoft.OpenApi.Any;
+using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi.Readers;
 using NuGet.Common;
 using NuGet.Protocol.Core.Types;
 using NuGet.Versioning;
@@ -14,6 +17,7 @@ using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -664,7 +668,7 @@ namespace RefreshResources
 			var issueBody = new StringBuilder();
 			issueBody.Append("This issue documents the full list of webhook events in the SendGrid platform and also tracks which ones can be handled by the ZoomNet library. ");
 
-			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\Resource.resx";
+			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\WebhookDataResource.resx";
 			var resxDoc = new XmlDocument();
 			resxDoc.Load(resxPath);
 			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
@@ -698,7 +702,7 @@ namespace RefreshResources
 
 						var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
 						var nameAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("name"));
-						nameAttribute.Value = $"{ev.EventName.Replace('.', '_')}_webhook"; // replace all '.' with '_'
+						nameAttribute.Value = ev.EventName.Replace('.', '_'); // replace all '.' with '_'
 						var typeAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("type"));
 						typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
 
@@ -991,6 +995,7 @@ namespace RefreshResources
 					ep.HttpVerb,
 					ep.Summary,
 					ep.Tag,
+					ep.ResponseJson,
 					IsHandled = IsEndpointHandledAsync(handledEndpoints, ep.Name, ep.HttpVerb)
 				});
 
@@ -1052,34 +1057,74 @@ namespace RefreshResources
 				issue = await githubClient.Issue.Update(repoOwner, repoNameDestination, issue.Number, issueUpdate).ConfigureAwait(false);
 				Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
 			}
+
+			var jsonSerializerOptions = new JsonSerializerOptions
+			{
+				WriteIndented = true // Enables pretty-print formatting
+			};
+
+			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\EndpointsResponseResource.resx";
+			var resxDoc = new XmlDocument();
+			resxDoc.Load(resxPath);
+			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
+			var sampleFilesCreated = 0;
+
+			// Create files containing the JSON response for each endpoint
+			foreach (var endpoint in allEndpoints.Where(endpoint => !string.IsNullOrEmpty(endpoint.ResponseJson)))
+			{
+				var filename = $"{endpoint.Name.TrimStart('/').Replace('\\', '-').Replace('/', '-')}_{endpoint.HttpVerb.ToUpper()}";
+				var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\EndpointsResponseData\\{filename}.json";
+				var sample = endpoint.ResponseJson
+					.TrimStart('\"')
+					.TrimEnd('\"');
+
+				var jsonElement = JsonSerializer.Deserialize<JsonElement>(sample);
+				var formattedSample = JsonSerializer.Serialize(jsonElement, jsonSerializerOptions);
+				File.WriteAllText(samplePath, formattedSample);
+				sampleFilesCreated++;
+
+				var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
+				var nameAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("name"));
+				nameAttribute.Value = $"{filename.Replace('.', '_')}"; // replace all '.' with '_'
+				var typeAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("type"));
+				typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
+
+				var valueNode = resxDoc.CreateNode(XmlNodeType.Element, "value", null);
+				valueNode.InnerText = $@"..\EndpointsResponseData\{filename}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
+				dataNode.AppendChild(valueNode);
+
+				resxRootNode.AppendChild(dataNode);
+			}
+
+			Console.WriteLine($"{sampleFilesCreated} sample files were created");
+
+			SaveResxFile(resxDoc, resxPath);
 		}
 
-		private static async Task<(string Title, string Group, string Name, string HttpVerb, string Summary, string Tag)[]> GetSendGridEndpointsList(string title, string group, CancellationToken cancellationToken)
+		private static async Task<(string Title, string Group, string Name, string HttpVerb, string Summary, string Tag, string ResponseJson)[]> GetSendGridEndpointsList(string title, string group, CancellationToken cancellationToken)
 		{
 			var url = $"https://developers.zoom.us/api-hub/{group}/methods/endpoints.json";
+
 			using HttpClient client = new();
+			using var stream = await client.GetStreamAsync(url, cancellationToken).ConfigureAwait(false);
 
-			var httpResponse = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
-			if (httpResponse.IsSuccessStatusCode)
+			var openApiReader = new OpenApiStreamReader();
+			var openApiDocument = openApiReader.Read(stream, out var diagnostic);
+
+			if (openApiDocument.Paths.Any())
 			{
-				var jsonContent = await httpResponse.Content.ReadAsStringAsync(cancellationToken);
-				var jsonRootElement = JsonDocument.Parse(jsonContent).RootElement;
+				var endpoints = openApiDocument.Paths
+					.SelectMany(path => path.Value.Operations.Select(operation => (
+						Title: title,
+						Group: group,
+						Name: path.Key,
+						HttpVerb: operation.Key.ToString(),
+						Summary: operation.Value.Summary,
+						Tag: operation.Value.Tags.First().Name,
+						ResponseJson: GenerateResponseJson(openApiDocument, operation.Value)
+					))).ToArray();
 
-				if (jsonRootElement.TryGetProperty("paths", out JsonElement jsonPaths))
-				{
-					var endpoints = jsonPaths
-						.EnumerateObject()
-						.SelectMany(prop => prop.Value.EnumerateObject().Select(p => (
-							Title: title,
-							Group: group,
-							Name: prop.Name,
-							HttpVerb: p.Name,
-							Summary: p.Value.GetProperty("summary").GetString(),
-							Tag: p.Value.GetProperty("tags").EnumerateArray().First().GetString())))
-						.ToArray();
-
-					return endpoints;
-				}
+				return endpoints;
 			}
 
 			return [];
@@ -1147,6 +1192,111 @@ namespace RefreshResources
 			// The idea to use FileSystemName.MatchesSimpleExpression comes from here: https://stackoverflow.com/a/66465594
 			return allHandledEndpoints
 				.Any(ep => FileSystemName.MatchesSimpleExpression(expression, ep.Endpoint, true) && ep.HttpVerb.Equals(httpVerb, StringComparison.OrdinalIgnoreCase));
+		}
+
+		private static string GenerateResponseJson(OpenApiDocument document, OpenApiOperation operation)
+		{
+			if (operation.Responses.TryGetValue("200", out var response))
+			{
+				if (response.Content.TryGetValue("application/json", out var content))
+				{
+					var schema = content.Schema;
+					var sample = GenerateSample(schema, document);
+
+					return sample?.ToJsonString();
+				}
+			}
+
+			return null;
+		}
+
+		private static JsonNode GenerateSample(OpenApiSchema schema, OpenApiDocument doc)
+		{
+			// Resolve $ref
+			if (schema.Reference != null)
+			{
+				schema = doc.Components.Schemas[schema.Reference.Id];
+			}
+
+			if (schema.Example != null)
+			{
+				return ConvertExample(schema.Example);
+			}
+
+			// The OpenApi document does not provide an example
+			// Generate a sample based on type
+			return schema.Type switch
+			{
+				"object" => GenerateObject(schema, doc),
+				"array" => GenerateArray(schema, doc),
+				"string" => schema.Format == "date-time" ? DateTime.UtcNow.ToString("o") : "string",
+				"integer" => 0,
+				"number" => 0.0,
+				"boolean" => true,
+				_ => JsonValue.Create((string)null)
+			};
+		}
+
+		private static JsonNode ConvertExample(IOpenApiAny example)
+		{
+			switch (example)
+			{
+				case OpenApiDateTime dt:
+					return JsonValue.Create(dt.Value.ToString("o"));
+
+				case OpenApiString s:
+					return JsonValue.Create(s.Value);
+
+				case OpenApiInteger i:
+					return JsonValue.Create(i.Value);
+
+				case OpenApiLong l:
+					return JsonValue.Create(l.Value);
+
+				case OpenApiDouble d:
+					return JsonValue.Create(d.Value);
+
+				case OpenApiBoolean b:
+					return JsonValue.Create(b.Value);
+
+				case OpenApiFloat f:
+					return JsonValue.Create(f.Value);
+
+				case OpenApiObject o:
+					var obj = new JsonObject();
+					foreach (var kv in o)
+						obj[kv.Key] = ConvertExample(kv.Value);
+					return obj;
+
+				case OpenApiArray arr:
+					var jsonArr = new JsonArray();
+					foreach (var item in arr)
+						jsonArr.Add(ConvertExample(item));
+					return jsonArr;
+
+				default:
+					// fallback: treat as string
+					return JsonValue.Create(example.ToString());
+			}
+		}
+
+		private static JsonObject GenerateObject(OpenApiSchema schema, OpenApiDocument doc)
+		{
+			var obj = new JsonObject();
+
+			foreach (var prop in schema.Properties)
+			{
+				obj[prop.Key] = GenerateSample(prop.Value, doc);
+			}
+
+			return obj;
+		}
+
+		private static JsonArray GenerateArray(OpenApiSchema schema, OpenApiDocument doc)
+		{
+			var arr = new JsonArray();
+			arr.Add(GenerateSample(schema.Items, doc));
+			return arr;
 		}
 	}
 }
