@@ -1315,6 +1315,12 @@ namespace RefreshResources
 				return ConvertExample(schema.Example);
 			}
 
+			// Pick the first enum value
+			if (schema.Enum.Count > 0)
+			{
+				return ConvertExample(schema.Enum.First());
+			}
+
 			// The OpenApi document does not provide an example
 			// Generate a sample based on type
 			return schema.Type switch
