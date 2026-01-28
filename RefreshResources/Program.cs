@@ -688,7 +688,7 @@ namespace RefreshResources
 					issueBody.AppendLine($"- [{checkState}] {ev.EventName}");
 
 					// Add sample to ZoomNet unit testing repository
-					var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\WebhookData\\{ev.EventName}.json";
+					var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\SampleData\\Webhooks\\{ev.EventName}.json";
 					if (!File.Exists(samplePath))
 					{
 						var sample = ev.Sample
@@ -1073,7 +1073,7 @@ namespace RefreshResources
 			foreach (var endpoint in allEndpoints.Where(endpoint => !string.IsNullOrEmpty(endpoint.ResponseJson)))
 			{
 				var filename = $"{endpoint.Name.TrimStart('/').Replace('\\', '-').Replace('/', '-')}_{endpoint.HttpVerb.ToUpper()}";
-				var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\EndpointsResponseData\\{filename}.json";
+				var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\SampleData\\Endpoints\\{filename}.json";
 				var sample = endpoint.ResponseJson
 					.TrimStart('\"')
 					.TrimEnd('\"');
