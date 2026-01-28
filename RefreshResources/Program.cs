@@ -1212,7 +1212,7 @@ namespace RefreshResources
 
 		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, OpenApiDocument doc)
 		{
-			var subschemas = schema.AllOf.Union(schema.OneOf);
+			var subschemas = schema.AllOf.Union(schema.OneOf).ToArray();
 			return FlattenSchemas(schema, subschemas, doc);
 		}
 
@@ -1263,6 +1263,11 @@ namespace RefreshResources
 				if (string.IsNullOrEmpty(result.Type) && !string.IsNullOrEmpty(s.Type))
 				{
 					result.Type = s.Type;
+				}
+
+				if (s.Example != null)
+				{
+					result.Example = s.Example;
 				}
 			}
 
