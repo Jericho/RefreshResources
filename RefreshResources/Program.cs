@@ -1196,14 +1196,21 @@ namespace RefreshResources
 
 		private static string GenerateResponseJson(OpenApiDocument document, OpenApiOperation operation)
 		{
-			if (operation.Responses.TryGetValue("200", out var response))
-			{
-				if (response.Content.TryGetValue("application/json", out var content))
-				{
-					var schema = content.Schema;
-					var sample = GenerateSample(schema, document);
+			// Most of the time, the response is HTTP 200 but I also have observed 201 and 204.
+			var successStatusCodes = new string[] { "200", "201", "204" };
 
-					return sample?.ToJsonString();
+			var successCode = operation.Responses.Keys.Where(k => successStatusCodes.Contains(k)).FirstOrDefault();
+			if (!string.IsNullOrEmpty(successCode))
+			{
+				if (operation.Responses.TryGetValue(successCode, out var response))
+				{
+					if (response.Content.TryGetValue("application/json", out var content))
+					{
+						var schema = content.Schema;
+						var sample = GenerateSample(schema, document);
+
+						return sample?.ToJsonString();
+					}
 				}
 			}
 
