@@ -1327,7 +1327,7 @@ namespace RefreshResources
 			{
 				"object" => GenerateObject(schema, doc),
 				"array" => GenerateArray(schema, doc),
-				"string" => schema.Format == "date-time" ? DateTime.UtcNow.ToString("o") : "string",
+				"string" => JsonValue.Create((string)null), // schema.Format == "date-time" ? DateTime.UtcNow.ToString("o") : "string",
 				"integer" => 0,
 				"number" => 0.0,
 				"boolean" => true,
