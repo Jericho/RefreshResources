@@ -668,7 +668,7 @@ namespace RefreshResources
 			var issueBody = new StringBuilder();
 			issueBody.Append("This issue documents the full list of webhook events in the SendGrid platform and also tracks which ones can be handled by the ZoomNet library. ");
 
-			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\WebhooksDataResource.resx";
+			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\WebhooksResource.resx";
 			var resxDoc = new XmlDocument();
 			resxDoc.Load(resxPath);
 			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
