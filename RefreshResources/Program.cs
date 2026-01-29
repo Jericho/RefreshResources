@@ -668,7 +668,7 @@ namespace RefreshResources
 			var issueBody = new StringBuilder();
 			issueBody.Append("This issue documents the full list of webhook events in the SendGrid platform and also tracks which ones can be handled by the ZoomNet library. ");
 
-			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\WebhookDataResource.resx";
+			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\WebhooksDataResource.resx";
 			var resxDoc = new XmlDocument();
 			resxDoc.Load(resxPath);
 			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
@@ -707,7 +707,7 @@ namespace RefreshResources
 						typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
 
 						var valueNode = resxDoc.CreateNode(XmlNodeType.Element, "value", null);
-						valueNode.InnerText = $@"..\WebhookData\{ev.EventName}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
+						valueNode.InnerText = $@"..\SampleData\Webhooks\{ev.EventName}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
 						dataNode.AppendChild(valueNode);
 
 						resxRootNode.AppendChild(dataNode);
@@ -1090,7 +1090,7 @@ namespace RefreshResources
 				typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
 
 				var valueNode = resxDoc.CreateNode(XmlNodeType.Element, "value", null);
-				valueNode.InnerText = $@"..\EndpointsResponseData\{filename}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
+				valueNode.InnerText = $@"..\SampleData\Endpoints\{filename}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
 				dataNode.AppendChild(valueNode);
 
 				resxRootNode.AppendChild(dataNode);
