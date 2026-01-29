@@ -1063,11 +1063,12 @@ namespace RefreshResources
 				WriteIndented = true // Enables pretty-print formatting
 			};
 
-			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\EndpointsResponseResource.resx";
+			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\EndpointsResource.resx";
 			var resxDoc = new XmlDocument();
 			resxDoc.Load(resxPath);
 			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
 			var sampleFilesCreated = 0;
+			var sampleFilesUpdated = 0;
 
 			// Create files containing the JSON response for each endpoint
 			foreach (var endpoint in allEndpoints.Where(endpoint => !string.IsNullOrEmpty(endpoint.ResponseJson)))
@@ -1080,23 +1081,36 @@ namespace RefreshResources
 
 				var jsonElement = JsonSerializer.Deserialize<JsonElement>(sample);
 				var formattedSample = JsonSerializer.Serialize(jsonElement, jsonSerializerOptions);
-				File.WriteAllText(samplePath, formattedSample);
-				sampleFilesCreated++;
 
-				var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
-				var nameAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("name"));
-				nameAttribute.Value = $"{filename.Replace('.', '_')}"; // replace all '.' with '_'
-				var typeAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("type"));
-				typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
+				if (!File.Exists(samplePath))
+				{
+					File.WriteAllText(samplePath, formattedSample);
+					sampleFilesCreated++;
 
-				var valueNode = resxDoc.CreateNode(XmlNodeType.Element, "value", null);
-				valueNode.InnerText = $@"..\SampleData\Endpoints\{filename}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
-				dataNode.AppendChild(valueNode);
+					var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
+					var nameAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("name"));
+					nameAttribute.Value = $"{filename.Replace('.', '_')}"; // replace all '.' with '_'
+					var typeAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("type"));
+					typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
 
-				resxRootNode.AppendChild(dataNode);
+					var valueNode = resxDoc.CreateNode(XmlNodeType.Element, "value", null);
+					valueNode.InnerText = $@"..\SampleData\Endpoints\{filename}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
+					dataNode.AppendChild(valueNode);
+
+					resxRootNode.AppendChild(dataNode);
+				}
+				else
+				{
+					if (!SameContent(formattedSample, new FileInfo(samplePath)))
+					{
+						File.WriteAllText(samplePath, formattedSample);
+						sampleFilesUpdated++;
+					}
+				}
 			}
 
 			Console.WriteLine($"{sampleFilesCreated} sample files were created");
+			Console.WriteLine($"{sampleFilesUpdated} sample files were updated");
 
 			SaveResxFile(resxDoc, resxPath);
 		}
