@@ -1348,7 +1348,7 @@ namespace RefreshResources
 			{
 				"object" => GenerateObject(schema, doc),
 				"array" => GenerateArray(schema, doc),
-				"string" => JsonValue.Create((string)null), // schema.Format == "date-time" ? DateTime.UtcNow.ToString("o") : "string",
+				"string" => JsonValue.Create((string)null),
 				"integer" => 0,
 				"number" => 0.0,
 				"boolean" => true,
@@ -1364,7 +1364,7 @@ namespace RefreshResources
 					return JsonValue.Create(dateTime.Value.ToString("o"));
 
 				case OpenApiDate dateOnly:
-					return JsonValue.Create(dateOnly.Value.ToString("o"));
+					return JsonValue.Create(dateOnly.Value.ToString("yyyy-MM-dd"));
 
 				case OpenApiString s:
 					return JsonValue.Create(s.Value);
