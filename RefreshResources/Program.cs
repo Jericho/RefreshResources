@@ -1211,7 +1211,8 @@ namespace RefreshResources
 		private static string GenerateResponseJson(OpenApiDocument document, OpenApiOperation operation)
 		{
 			// Most of the time, the response is HTTP 200 but I also have observed 201 and 204.
-			var successStatusCodes = new string[] { "200", "201", "204" };
+			// "302 Found" (AKA redirect) is for uploading/downloading files
+			var successStatusCodes = new string[] { "200", "201", "204", "302" };
 
 			var successCode = operation.Responses.Keys.Where(k => successStatusCodes.Contains(k)).FirstOrDefault();
 			if (!string.IsNullOrEmpty(successCode))
@@ -1233,7 +1234,23 @@ namespace RefreshResources
 
 		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, OpenApiDocument doc)
 		{
-			var subschemas = schema.AllOf.Union(schema.OneOf).ToArray();
+			// Handle OneOf differently - pick the first option instead of merging all
+			if (schema.OneOf != null && schema.OneOf.Count > 0)
+			{
+				var firstOption = schema.OneOf.First();
+
+				// Resolve $ref if needed
+				if (firstOption.Reference != null)
+				{
+					firstOption = doc.Components.Schemas[firstOption.Reference.Id];
+				}
+
+				// Recursively flatten the selected option
+				return FlattenSchemas(firstOption, doc);
+			}
+
+			// Handle AllOf - merge all schemas together
+			var subschemas = schema.AllOf.ToArray();
 			return FlattenSchemas(schema, subschemas, doc);
 		}
 
