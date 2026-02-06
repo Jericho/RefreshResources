@@ -1214,6 +1214,10 @@ namespace RefreshResources
 			// "302 Found" (AKA redirect) is for uploading/downloading files
 			var successStatusCodes = new string[] { "200", "201", "204", "302" };
 
+			// By default, we want all OneOf options to be included in the generated sample data.
+			// There is one exception that I'm aware of: /zoom_events/events/{eventId}/sessions/{sessionId}/interpreters endpoint (AKA the "getSessionInterpreterList" operation)
+			var pickFirstOneOf = operation.OperationId == "getSessionInterpreterList";
+
 			var successCode = operation.Responses.Keys.Where(k => successStatusCodes.Contains(k)).FirstOrDefault();
 			if (!string.IsNullOrEmpty(successCode))
 			{
@@ -1222,7 +1226,7 @@ namespace RefreshResources
 					if (response.Content.TryGetValue("application/json", out var content))
 					{
 						var schema = content.Schema;
-						var sample = GenerateSample(schema, document);
+						var sample = GenerateSample(schema, document, pickFirstOneOf);
 
 						return sample?.ToJsonString();
 					}
@@ -1232,29 +1236,38 @@ namespace RefreshResources
 			return null;
 		}
 
-		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, OpenApiDocument doc)
+		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, OpenApiDocument doc, bool pickFirstOneOf)
 		{
-			// Handle OneOf differently - pick the first option instead of merging all
+			// Handle OneOf based on the parameter
 			if (schema.OneOf != null && schema.OneOf.Count > 0)
 			{
-				var firstOption = schema.OneOf.First();
-
-				// Resolve $ref if needed
-				if (firstOption.Reference != null)
+				if (pickFirstOneOf)
 				{
-					firstOption = doc.Components.Schemas[firstOption.Reference.Id];
-				}
+					// Pick the first option instead of merging all
+					var firstOption = schema.OneOf.First();
 
-				// Recursively flatten the selected option
-				return FlattenSchemas(firstOption, doc);
+					// Resolve $ref if needed
+					if (firstOption.Reference != null)
+					{
+						firstOption = doc.Components.Schemas[firstOption.Reference.Id];
+					}
+
+					// Recursively flatten the selected option
+					return FlattenSchemas(firstOption, doc, pickFirstOneOf);
+				}
+				else
+				{
+					var allOptions = schema.OneOf.ToArray();
+					return FlattenSchemas(schema, allOptions, doc, pickFirstOneOf);
+				}
 			}
 
 			// Handle AllOf - merge all schemas together
 			var subschemas = schema.AllOf.ToArray();
-			return FlattenSchemas(schema, subschemas, doc);
+			return FlattenSchemas(schema, subschemas, doc, pickFirstOneOf);
 		}
 
-		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, IEnumerable<OpenApiSchema> subschemas, OpenApiDocument doc)
+		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, IEnumerable<OpenApiSchema> subschemas, OpenApiDocument doc, bool pickFirstOneOf)
 		{
 			if (subschemas == null || subschemas.Count() == 0)
 				return schema;
@@ -1279,7 +1292,7 @@ namespace RefreshResources
 				}
 
 				// Merge subschemas recursively
-				s = FlattenSchemas(s, doc);
+				s = FlattenSchemas(s, doc, pickFirstOneOf);
 
 				if (s.Properties != null)
 				{
@@ -1337,7 +1350,7 @@ namespace RefreshResources
 			return result;
 		}
 
-		private static JsonNode GenerateSample(OpenApiSchema schema, OpenApiDocument doc)
+		private static JsonNode GenerateSample(OpenApiSchema schema, OpenApiDocument doc, bool pickFirstOneOf)
 		{
 			// Resolve $ref
 			if (schema.Reference != null)
@@ -1346,7 +1359,7 @@ namespace RefreshResources
 			}
 
 			// Flatten subschemas (such as AllOf and OneOf)
-			schema = FlattenSchemas(schema, doc);
+			schema = FlattenSchemas(schema, doc, pickFirstOneOf);
 
 			if (schema.Example != null)
 			{
@@ -1363,8 +1376,8 @@ namespace RefreshResources
 			// Generate a sample based on type
 			return schema.Type switch
 			{
-				"object" => GenerateObject(schema, doc),
-				"array" => GenerateArray(schema, doc),
+				"object" => GenerateObject(schema, doc, pickFirstOneOf),
+				"array" => GenerateArray(schema, doc, pickFirstOneOf),
 				"string" => JsonValue.Create((string)null),
 				"integer" => 0,
 				"number" => 0.0,
@@ -1419,22 +1432,22 @@ namespace RefreshResources
 			}
 		}
 
-		private static JsonObject GenerateObject(OpenApiSchema schema, OpenApiDocument doc)
+		private static JsonObject GenerateObject(OpenApiSchema schema, OpenApiDocument doc, bool pickFirstOneOf)
 		{
 			var obj = new JsonObject();
 
 			foreach (var prop in schema.Properties)
 			{
-				obj[prop.Key] = GenerateSample(prop.Value, doc);
+				obj[prop.Key] = GenerateSample(prop.Value, doc, pickFirstOneOf);
 			}
 
 			return obj;
 		}
 
-		private static JsonArray GenerateArray(OpenApiSchema schema, OpenApiDocument doc)
+		private static JsonArray GenerateArray(OpenApiSchema schema, OpenApiDocument doc, bool pickFirstOneOf)
 		{
 			var arr = new JsonArray();
-			arr.Add(GenerateSample(schema.Items, doc));
+			arr.Add(GenerateSample(schema.Items, doc, pickFirstOneOf));
 			return arr;
 		}
 	}
