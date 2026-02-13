@@ -10,6 +10,7 @@ using NuGet.Versioning;
 using Octokit;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.IO.Enumeration;
 using System.Linq;
@@ -992,11 +993,12 @@ namespace RefreshResources
 					ep.Title,
 					ep.Group,
 					ep.Name,
-					ep.HttpVerb,
+					ep.OperationType,
 					ep.Summary,
 					ep.Tag,
 					ep.ResponseJson,
-					IsHandled = IsEndpointHandledAsync(handledEndpoints, ep.Name, ep.HttpVerb)
+					ep.GeneratedCSharpCode,
+					IsHandled = IsEndpointHandledAsync(handledEndpoints, ep.Name, ep.OperationType)
 				});
 
 			var issueTitle = "List of Endpoints";
@@ -1073,7 +1075,7 @@ namespace RefreshResources
 			// Create files containing the JSON response for each endpoint
 			foreach (var endpoint in allEndpoints.Where(endpoint => !string.IsNullOrEmpty(endpoint.ResponseJson)))
 			{
-				var filename = $"{endpoint.Name.TrimStart('/').Replace('\\', '-').Replace('/', '-')}_{endpoint.HttpVerb.ToUpper()}";
+				var filename = $"{endpoint.Name.TrimStart('/').Replace('\\', '-').Replace('/', '-')}_{endpoint.OperationType.ToString().ToUpper()}";
 				var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\SampleData\\Endpoints\\{filename}.json";
 				var sample = endpoint.ResponseJson
 					.TrimStart('\"')
@@ -1113,9 +1115,43 @@ namespace RefreshResources
 			Console.WriteLine($"{sampleFilesUpdated} sample files were updated");
 
 			SaveResxFile(resxDoc, resxPath);
+
+			// Generate C# code for each endpoint
+			var csharpCodePath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.GeneratedCode";
+			if (!Directory.Exists(csharpCodePath)) Directory.CreateDirectory(csharpCodePath);
+
+			var csharpFilesCreated = 0;
+			var csharpFilesUpdated = 0;
+
+			foreach (var endpoint in allEndpoints.Where(endpoint => !endpoint.IsHandled && !string.IsNullOrEmpty(endpoint.GeneratedCSharpCode)))
+			{
+				Debug.WriteLine($"Endpoint: {endpoint.Name}, HTTP Verb: {endpoint.OperationType.ToString()}");
+				var className = ToPascalCase(endpoint.Group);
+				var methodName = GenerateMethodName(endpoint.Name, endpoint.OperationType);
+
+				var filename = $"{className}_{methodName}.cs";
+				var codePath = Path.Combine(csharpCodePath, filename);
+
+				if (File.Exists(codePath))
+				{
+					if (!SameContent(endpoint.GeneratedCSharpCode, new FileInfo(codePath)))
+					{
+						await File.WriteAllTextAsync(codePath, endpoint.GeneratedCSharpCode, cancellationToken).ConfigureAwait(false);
+						csharpFilesUpdated++;
+					}
+				}
+				else
+				{
+					await File.WriteAllTextAsync(codePath, endpoint.GeneratedCSharpCode, cancellationToken).ConfigureAwait(false);
+					csharpFilesCreated++;
+				}
+			}
+
+			Console.WriteLine($"{csharpFilesCreated} C# code files were created");
+			Console.WriteLine($"{csharpFilesUpdated} C# code files were updated");
 		}
 
-		private static async Task<(string Title, string Group, string Name, string HttpVerb, string Summary, string Tag, string ResponseJson)[]> GetSendGridEndpointsList(string title, string group, CancellationToken cancellationToken)
+		private static async Task<(string Title, string Group, string Name, OperationType OperationType, string Summary, string Tag, string ResponseJson, string GeneratedCSharpCode)[]> GetSendGridEndpointsList(string title, string group, CancellationToken cancellationToken)
 		{
 			var url = $"https://developers.zoom.us/api-hub/{group}/methods/endpoints.json";
 
@@ -1132,10 +1168,11 @@ namespace RefreshResources
 						Title: title,
 						Group: group,
 						Name: path.Key,
-						HttpVerb: operation.Key.ToString(),
+						OperationType: operation.Key,
 						Summary: operation.Value.Summary,
 						Tag: operation.Value.Tags.First().Name,
-						ResponseJson: GenerateResponseJson(openApiDocument, operation.Value)
+						ResponseJson: GenerateResponseJson(openApiDocument, operation.Value),
+						GeneratedCSharpCode: GenerateCSharpMethod(operation.Value, path.Key, operation.Key, ToPascalCase(group))
 					))).ToArray();
 
 				return endpoints;
@@ -1144,11 +1181,11 @@ namespace RefreshResources
 			return [];
 		}
 
-		private static (string Endpoint, string HttpVerb)[] GetAllHandledEndpoints()
+		private static (string Endpoint, OperationType OperationType)[] GetAllHandledEndpoints()
 		{
 			const string sourcePath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet\\Resources\\";
 
-			var handledEndpoints = new List<(string EndpointName, string HttpVerb)>();
+			var handledEndpoints = new List<(string EndpointName, OperationType OperationType)>();
 			foreach (var filePath in Directory.GetFiles(sourcePath, "*.cs"))
 			{
 				using (FileStream fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan))
@@ -1161,35 +1198,35 @@ namespace RefreshResources
 						if (!string.IsNullOrWhiteSpace(endpoint))
 						{
 							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, "get"));
+							handledEndpoints.Add((endpoint, OperationType.Get));
 						}
 
 						endpoint = _httpPostRegex.Match(line).Groups[1]?.ToString();
 						if (!string.IsNullOrWhiteSpace(endpoint))
 						{
 							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, "post"));
+							handledEndpoints.Add((endpoint, OperationType.Post));
 						}
 
 						endpoint = _httpPatchRegex.Match(line).Groups[1]?.ToString();
 						if (!string.IsNullOrWhiteSpace(endpoint))
 						{
 							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, "patch"));
+							handledEndpoints.Add((endpoint, OperationType.Patch));
 						}
 
 						endpoint = _httpPutRegex.Match(line).Groups[1]?.ToString();
 						if (!string.IsNullOrWhiteSpace(endpoint))
 						{
 							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, "put"));
+							handledEndpoints.Add((endpoint, OperationType.Put));
 						}
 
 						endpoint = _httpDeleteRegex.Match(line).Groups[1]?.ToString();
 						if (!string.IsNullOrWhiteSpace(endpoint))
 						{
 							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, "delete"));
+							handledEndpoints.Add((endpoint, OperationType.Delete));
 						}
 					}
 				}
@@ -1198,14 +1235,14 @@ namespace RefreshResources
 			return handledEndpoints.ToArray();
 		}
 
-		private static bool IsEndpointHandledAsync((string Endpoint, string HttpVerb)[] allHandledEndpoints, string endpoint, string httpVerb)
+		private static bool IsEndpointHandledAsync((string Endpoint, OperationType OperationType)[] allHandledEndpoints, string endpoint, OperationType operationType)
 		{
 			// The regex exression to convert route parameters to wildcard patterns comes from here: https://stackoverflow.com/a/20702095
 			var expression = Regex.Replace(endpoint.Trim('/'), "(?<BRACE>\\{)([^\\}]*)(?<-BRACE>\\})", "{*}");
 
 			// The idea to use FileSystemName.MatchesSimpleExpression comes from here: https://stackoverflow.com/a/66465594
 			return allHandledEndpoints
-				.Any(ep => FileSystemName.MatchesSimpleExpression(expression, ep.Endpoint, true) && ep.HttpVerb.Equals(httpVerb, StringComparison.OrdinalIgnoreCase));
+				.Any(ep => FileSystemName.MatchesSimpleExpression(expression, ep.Endpoint, true) && ep.OperationType == operationType);
 		}
 
 		private static string GenerateResponseJson(OpenApiDocument document, OpenApiOperation operation)
@@ -1449,6 +1486,291 @@ namespace RefreshResources
 			var arr = new JsonArray();
 			arr.Add(GenerateSample(schema.Items, doc, pickFirstOneOf));
 			return arr;
+		}
+
+		private static string GenerateCSharpMethod(OpenApiOperation operation, string path, OperationType operationType, string className)
+		{
+			var sb = new StringBuilder();
+			sb.AppendLine("using System;");
+			sb.AppendLine("using System.Collections.Generic;");
+			sb.AppendLine("using System.Threading;");
+			sb.AppendLine("using System.Threading.Tasks;");
+			sb.AppendLine();
+			sb.AppendLine("namespace ZoomNet.Resources");
+			sb.AppendLine("{");
+			sb.AppendLine($"\tpublic partial class {className}");
+			sb.AppendLine("\t{");
+
+			// Generate method documentation
+			if (!string.IsNullOrEmpty(operation.Summary))
+			{
+				var summary = operation.Summary
+					.Replace("\r\n", "\n")
+					.Replace("\n", "\r\n\t\t///");
+
+				sb.AppendLine("\t\t/// <summary>");
+				sb.AppendLine($"\t\t/// {summary}");
+				sb.AppendLine("\t\t/// </summary>");
+			}
+
+			if (!string.IsNullOrEmpty(operation.Description))
+			{
+				var description = operation.Description
+					.Replace("\r\n", "\n")
+					.Replace("\n", "\r\n\t\t///");
+
+				sb.AppendLine("\t\t/// <remarks>");
+				sb.AppendLine($"\t\t/// {description}");
+				sb.AppendLine("\t\t/// </remarks>");
+			}
+
+			// Generate parameter documentation
+			var allParameters = operation.Parameters ?? new List<OpenApiParameter>();
+			foreach (var param in allParameters)
+			{
+				sb.AppendLine($"\t\t/// <param name=\"{ToCamelCase(param.Name)}\">{param.Description ?? param.Name}</param>");
+			}
+
+			// Extract request body properties
+			var requestBodyProperties = new List<(string Name, OpenApiSchema Schema, bool IsRequired, string Description)>();
+			if (operation.RequestBody != null && operation.RequestBody.Content.TryGetValue("application/json", out var requestContent))
+			{
+				var schema = requestContent.Schema;
+
+				// Resolve reference if needed
+				if (schema.Reference != null)
+				{
+					// Schema reference will need to be resolved from the document
+					// For now, we'll just note it exists
+				}
+
+				if (schema.Properties != null && schema.Properties.Any())
+				{
+					foreach (var prop in schema.Properties)
+					{
+						var isRequired = schema.Required?.Contains(prop.Key) ?? false;
+						requestBodyProperties.Add((prop.Key, prop.Value, isRequired, prop.Value.Description));
+					}
+				}
+			}
+
+			// Document request body properties as parameters
+			foreach (var prop in requestBodyProperties)
+			{
+				sb.AppendLine($"\t\t/// <param name=\"{ToCamelCase(prop.Name)}\">{prop.Description ?? prop.Name}</param>");
+			}
+
+			sb.AppendLine("\t\t/// <param name=\"cancellationToken\">The cancellation token.</param>");
+			sb.AppendLine("\t\t/// <returns>The response.</returns>");
+
+			// Generate method signature
+			var methodName = operation.OperationId ?? GenerateMethodName(path, operationType);
+			var returnType = GetReturnType(operation);
+
+			sb.Append($"\t\tpublic Task<{returnType}> {ToPascalCase(methodName)}(");
+
+			// Add parameters
+			var parameters = new List<string>();
+
+			// Path parameters
+			foreach (var param in allParameters.Where(p => p.In == ParameterLocation.Path))
+			{
+				var paramType = GetCSharpType(param.Schema);
+				parameters.Add($"{paramType} {ToCamelCase(param.Name)}");
+			}
+
+			// Query parameters
+			foreach (var param in allParameters.Where(p => p.In == ParameterLocation.Query))
+			{
+				var paramType = GetCSharpType(param.Schema);
+				var nullable = !param.Required ? "?" : "";
+				parameters.Add($"{paramType}{nullable} {ToCamelCase(param.Name)} = null");
+			}
+
+			// Request body properties as individual parameters
+			foreach (var prop in requestBodyProperties)
+			{
+				var paramType = GetCSharpType(prop.Schema);
+				var nullable = !prop.IsRequired ? "?" : "";
+				var defaultValue = !prop.IsRequired ? " = null" : "";
+				parameters.Add($"{paramType}{nullable} {ToCamelCase(prop.Name)}{defaultValue}");
+			}
+
+			parameters.Add("CancellationToken cancellationToken = default");
+
+			sb.AppendLine(string.Join(", ", parameters) + ")");
+			sb.AppendLine("\t\t{");
+
+			// Generate method body
+			var httpMethod = operationType.ToString().ToUpper();
+			var endpoint = path;
+
+			// Replace path parameters
+			foreach (var param in allParameters.Where(p => p.In == ParameterLocation.Path))
+			{
+				endpoint = endpoint.Replace($"{{{param.Name}}}", $"{{{ToCamelCase(param.Name)}}}");
+			}
+
+			var queryParams = allParameters.Where(p => p.In == ParameterLocation.Query).ToList();
+
+			// If there are request body properties, construct the body object
+			if (requestBodyProperties.Any())
+			{
+				sb.AppendLine("\t\t\tvar data = new");
+				sb.AppendLine("\t\t\t{");
+				for (int i = 0; i < requestBodyProperties.Count; i++)
+				{
+					var prop = requestBodyProperties[i];
+					var comma = i < requestBodyProperties.Count - 1 ? "," : "";
+					sb.AppendLine($"\t\t\t\t{prop.Name} = {ToCamelCase(prop.Name)}{comma}");
+				}
+				sb.AppendLine("\t\t\t};");
+				sb.AppendLine();
+			}
+
+			// Generate HTTP call
+			switch (operationType)
+			{
+				case OperationType.Get:
+					sb.AppendLine("\t\t\treturn _client");
+					sb.AppendLine($"\t\t\t\t.GetAsync(\"{endpoint}\")");
+					foreach (var param in queryParams)
+					{
+						sb.AppendLine($"\t\t\t\t.WithArgument(\"{param.Name}\", {ToCamelCase(param.Name)})");
+					}
+					sb.AppendLine("\t\t\t\t.WithCancellationToken(cancellationToken)");
+					sb.AppendLine($"\t\t\t\t.AsObject<{returnType}>();");
+					break;
+				case OperationType.Post:
+					sb.AppendLine("\t\t\treturn _client");
+					sb.AppendLine($"\t\t\t\t.PostAsync(\"{endpoint}\")");
+					if (requestBodyProperties.Any())
+					{
+						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
+					}
+					foreach (var param in queryParams)
+					{
+						sb.AppendLine($"\t\t\t\t.WithArgument(\"{param.Name}\", {ToCamelCase(param.Name)})");
+					}
+					sb.AppendLine("\t\t\t\t.WithCancellationToken(cancellationToken)");
+					sb.AppendLine($"\t\t\t\t.AsObject<{returnType}>();");
+					break;
+				case OperationType.Put:
+					sb.AppendLine("\t\t\treturn _client");
+					sb.AppendLine($"\t\t\t\t.PutAsync(\"{endpoint}\")");
+					if (requestBodyProperties.Any())
+					{
+						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
+					}
+					foreach (var param in queryParams)
+					{
+						sb.AppendLine($"\t\t\t\t.WithArgument(\"{param.Name}\", {ToCamelCase(param.Name)})");
+					}
+					sb.AppendLine("\t\t\t\t.WithCancellationToken(cancellationToken)");
+					sb.AppendLine($"\t\t\t\t.AsObject<{returnType}>();");
+					break;
+				case OperationType.Patch:
+					sb.AppendLine("\t\t\treturn _client");
+					sb.AppendLine($"\t\t\t\t.PatchAsync(\"{endpoint}\")");
+					if (requestBodyProperties.Any())
+					{
+						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
+					}
+					foreach (var param in queryParams)
+					{
+						sb.AppendLine($"\t\t\t\t.WithArgument(\"{param.Name}\", {ToCamelCase(param.Name)})");
+					}
+					sb.AppendLine("\t\t\t\t.WithCancellationToken(cancellationToken)");
+					sb.AppendLine($"\t\t\t\t.AsObject<{returnType}>();");
+					break;
+				case OperationType.Delete:
+					sb.AppendLine("\t\t\treturn _client");
+					sb.AppendLine($"\t\t\t\t.DeleteAsync(\"{endpoint}\")");
+					foreach (var param in queryParams)
+					{
+						sb.AppendLine($"\t\t\t\t.WithArgument(\"{param.Name}\", {ToCamelCase(param.Name)})");
+					}
+					sb.AppendLine("\t\t\t\t.WithCancellationToken(cancellationToken)");
+					sb.AppendLine("\t\t\t\t.AsMessage();");
+					break;
+			}
+
+			sb.AppendLine("\t\t}");
+			sb.AppendLine("\t}");
+			sb.AppendLine("}");
+
+			return sb.ToString();
+		}
+
+		private static string GetReturnType(OpenApiOperation operation)
+		{
+			var successResponse = operation.Responses.FirstOrDefault(r => r.Key.StartsWith("2"));
+			if (successResponse.Value != null && successResponse.Value.Content.TryGetValue("application/json", out var content))
+			{
+				if (content.Schema.Type == "array")
+				{
+					return "List<object>";
+				}
+				return "object";
+			}
+			return "object";
+		}
+
+		private static string GetCSharpType(OpenApiSchema schema)
+		{
+			if (schema == null) return "object";
+
+			return schema.Type switch
+			{
+				"string" => schema.Format switch
+				{
+					"date" => "DateOnly",
+					"date-time" => "DateTime",
+					"uuid" => "Guid",
+					_ => "string"
+				},
+				"integer" => schema.Format == "int64" ? "long" : "int",
+				"number" => schema.Format == "double" ? "double" : "float",
+				"boolean" => "bool",
+				"array" => $"List<{GetCSharpType(schema.Items)}>",
+				"object" => "object",
+				_ => "object"
+			};
+		}
+
+		private static string GenerateMethodName(string path, OperationType operationType)
+		{
+			var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries)
+				.Where(p => !p.StartsWith("{"))
+				.Select(ToPascalCase);
+
+			var verb = operationType switch
+			{
+				OperationType.Get => "Get",
+				OperationType.Post => "Create",
+				OperationType.Put => "Update",
+				OperationType.Patch => "Update",
+				OperationType.Delete => "Delete",
+				_ => operationType.ToString()
+			};
+
+			return verb + string.Join("", parts);
+		}
+
+		private static string ToPascalCase(string input)
+		{
+			if (string.IsNullOrEmpty(input)) return input;
+
+			var words = input.Split(new[] { '-', '_', ' ' }, StringSplitOptions.RemoveEmptyEntries);
+			return string.Join("", words.Select(w => char.ToUpper(w[0]) + w.Substring(1).ToLower()));
+		}
+
+		private static string ToCamelCase(string input)
+		{
+			if (string.IsNullOrEmpty(input)) return input;
+
+			var pascal = ToPascalCase(input);
+			return char.ToLower(pascal[0]) + pascal.Substring(1);
 		}
 	}
 }
