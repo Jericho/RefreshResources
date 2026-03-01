@@ -35,6 +35,9 @@ namespace RefreshResources
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much large number of concurrent connections.
 		private const int DESIRED_SDK_MAJOR_VERSION = 10;
 
+		private const string DESIRED_CAKE_VERSION_FOR_LIBRARIES = "6.1.0";
+		private const string DESIRED_CAKE_VERSION_FOR_CAKE_ADDINS = "2.3.0";
+
 		private static readonly Regex _addinReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "addin"), RegexOptions.Compiled | RegexOptions.Multiline);
 		private static readonly Regex _toolReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "tool"), RegexOptions.Compiled | RegexOptions.Multiline);
 		private static readonly Regex _loadReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "(load|l)"), RegexOptions.Compiled | RegexOptions.Multiline);
@@ -426,8 +429,8 @@ namespace RefreshResources
 
 			var buildCakeVersion = project.ProjectType switch
 			{
-				ProjectType.Library => "6.0.0",
-				ProjectType.CakeAddin => "2.3.0",
+				ProjectType.Library => DESIRED_CAKE_VERSION_FOR_LIBRARIES,
+				ProjectType.CakeAddin => DESIRED_CAKE_VERSION_FOR_CAKE_ADDINS,
 				_ => throw new Exception("Unknown project type")
 			};
 
