@@ -44,11 +44,11 @@ namespace RefreshResources
 
 		private const string ADDIN_REFERENCE_REGEX = "(?<lineprefix>.*)(?<packageprefix>\\#{0}) (?<scheme>(nuget|dotnet)):(?<separator1>\"?)(?<packagerepository>.*)\\?(?<referencestring>.*?(?=(?:[\"| ])|$))(?<separator2>\"?)(?<separator3> ?)(?<linepostfix>.*?$)";
 
-		private static Regex _httpGetRegex = new Regex("\\.GetAsync\\((.*)\\)", RegexOptions.Compiled);
-		private static Regex _httpPostRegex = new Regex("\\.PostAsync\\((.*)\\)", RegexOptions.Compiled);
-		private static Regex _httpPatchRegex = new Regex("\\.PatchAsync\\((.*)\\)", RegexOptions.Compiled);
-		private static Regex _httpPutRegex = new Regex("\\.PutAsync\\((.*)\\)", RegexOptions.Compiled);
-		private static Regex _httpDeleteRegex = new Regex("\\.DeleteAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static readonly Regex _httpGetRegex = new("\\.GetAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static readonly Regex _httpPostRegex = new("\\.PostAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static readonly Regex _httpPatchRegex = new("\\.PatchAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static readonly Regex _httpPutRegex = new("\\.PutAsync\\((.*)\\)", RegexOptions.Compiled);
+		private static readonly Regex _httpDeleteRegex = new("\\.DeleteAsync\\((.*)\\)", RegexOptions.Compiled);
 
 		private enum ProjectType
 		{
@@ -105,8 +105,8 @@ namespace RefreshResources
 					await RefreshResourcesAsync().ConfigureAwait(false);
 					await CopyResourceFiles().ConfigureAwait(false);
 
-					await RefreshSendGridWebHookList(githubClient).ConfigureAwait(false);
-					await RefreshSendGridEndpointsList(githubClient).ConfigureAwait(false);
+					await RefreshZoomWebhooksList(githubClient).ConfigureAwait(false);
+					await RefreshZoomEndpointsList(githubClient).ConfigureAwait(false);
 
 					// Commented out because I don't want 450 new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
@@ -597,10 +597,10 @@ namespace RefreshResources
 			return newContent.ToString();
 		}
 
-		private static async Task RefreshSendGridWebHookList(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		private static async Task RefreshZoomWebhooksList(GitHubClient githubClient, CancellationToken cancellationToken = default)
 		{
 			Console.WriteLine();
-			Console.WriteLine("***** SendGrid Webhooks list *****");
+			Console.WriteLine("***** Zoom Webhooks list *****");
 
 			var repoOwner = "jericho";
 			var repoNameSource = "ZoomNet"; // Repo where we fetch EventType.cs
@@ -610,30 +610,30 @@ namespace RefreshResources
 			var contents = await githubClient.Repository.Content.GetAllContents(repoOwner, repoNameSource, resourcePath).ConfigureAwait(false);
 			var eventTypeCSharpSource = contents[0].Content;
 
-			var meetingEvents = await GetSendGridWebhookList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
-			var rtmsEvents = await GetSendGridWebhookList("RTMS", "rtms", cancellationToken).ConfigureAwait(false);
-			var teamChatEvents = await GetSendGridWebhookList("Team Chat", "team-chat", cancellationToken).ConfigureAwait(false);
-			var phoneEvents = await GetSendGridWebhookList("Phone", "phone", cancellationToken).ConfigureAwait(false);
-			var mailEvents = await GetSendGridWebhookList("Mail", "mail", cancellationToken).ConfigureAwait(false);
-			var calendarEvents = await GetSendGridWebhookList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
-			var roomsEvents = await GetSendGridWebhookList("Rooms", "rooms", cancellationToken).ConfigureAwait(false);
-			var whiteboardEvents = await GetSendGridWebhookList("Whiteboard", "whiteboard", cancellationToken).ConfigureAwait(false);
-			var chatbotEvents = await GetSendGridWebhookList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
-			var schedulerEvents = await GetSendGridWebhookList("Scheduler", "scheduler", cancellationToken).ConfigureAwait(false);
-			var contactCenterEvents = await GetSendGridWebhookList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
-			var eventsEvents = await GetSendGridWebhookList("Events", "events", cancellationToken).ConfigureAwait(false);
-			var iqEvents = await GetSendGridWebhookList("Revenue Accelerator", "iq", cancellationToken).ConfigureAwait(false);
-			var numberManagementEvents = await GetSendGridWebhookList("Number Management", "number-management", cancellationToken).ConfigureAwait(false);
-			var nodeEvents = await GetSendGridWebhookList("Node", "node", cancellationToken).ConfigureAwait(false);
-			var qualityManagementEvents = await GetSendGridWebhookList("Quality Management", "quality-management", cancellationToken).ConfigureAwait(false);
-			var healthcareEvents = await GetSendGridWebhookList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
-			var videoManagementEvents = await GetSendGridWebhookList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
-			var usersEvents = await GetSendGridWebhookList("Users", "users", cancellationToken).ConfigureAwait(false);
-			var accountsEvents = await GetSendGridWebhookList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
-			var qssEvents = await GetSendGridWebhookList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
-			var videoSdkEvents = await GetSendGridWebhookList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
-			var cobrowseSdkEvents = await GetSendGridWebhookList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
-			var appsEvents = await GetSendGridWebhookList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
+			var meetingEvents = await GetZoomWebhooksList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
+			var rtmsEvents = await GetZoomWebhooksList("RTMS", "rtms", cancellationToken).ConfigureAwait(false);
+			var teamChatEvents = await GetZoomWebhooksList("Team Chat", "team-chat", cancellationToken).ConfigureAwait(false);
+			var phoneEvents = await GetZoomWebhooksList("Phone", "phone", cancellationToken).ConfigureAwait(false);
+			var mailEvents = await GetZoomWebhooksList("Mail", "mail", cancellationToken).ConfigureAwait(false);
+			var calendarEvents = await GetZoomWebhooksList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
+			var roomsEvents = await GetZoomWebhooksList("Rooms", "rooms", cancellationToken).ConfigureAwait(false);
+			var whiteboardEvents = await GetZoomWebhooksList("Whiteboard", "whiteboard", cancellationToken).ConfigureAwait(false);
+			var chatbotEvents = await GetZoomWebhooksList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
+			var schedulerEvents = await GetZoomWebhooksList("Scheduler", "scheduler", cancellationToken).ConfigureAwait(false);
+			var contactCenterEvents = await GetZoomWebhooksList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
+			var eventsEvents = await GetZoomWebhooksList("Events", "events", cancellationToken).ConfigureAwait(false);
+			var iqEvents = await GetZoomWebhooksList("Revenue Accelerator", "iq", cancellationToken).ConfigureAwait(false);
+			var numberManagementEvents = await GetZoomWebhooksList("Number Management", "number-management", cancellationToken).ConfigureAwait(false);
+			var nodeEvents = await GetZoomWebhooksList("Node", "node", cancellationToken).ConfigureAwait(false);
+			var qualityManagementEvents = await GetZoomWebhooksList("Quality Management", "quality-management", cancellationToken).ConfigureAwait(false);
+			var healthcareEvents = await GetZoomWebhooksList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
+			var videoManagementEvents = await GetZoomWebhooksList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
+			var usersEvents = await GetZoomWebhooksList("Users", "users", cancellationToken).ConfigureAwait(false);
+			var accountsEvents = await GetZoomWebhooksList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
+			var qssEvents = await GetZoomWebhooksList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
+			var videoSdkEvents = await GetZoomWebhooksList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
+			var cobrowseSdkEvents = await GetZoomWebhooksList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
+			var appsEvents = await GetZoomWebhooksList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
 
 			var allEvents = meetingEvents
 				.Union(rtmsEvents)
@@ -790,7 +790,7 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task<(string Title, string Group, string Name, string Sample)[]> GetSendGridWebhookList(string title, string group, CancellationToken cancellationToken)
+		private static async Task<(string Title, string Group, string Name, string Sample)[]> GetZoomWebhooksList(string title, string group, CancellationToken cancellationToken)
 		{
 			var url = $"https://developers.zoom.us/api-hub/{group}/events/webhooks.json";
 			using HttpClient client = new();
@@ -918,45 +918,45 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task RefreshSendGridEndpointsList(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		private static async Task RefreshZoomEndpointsList(GitHubClient githubClient, CancellationToken cancellationToken = default)
 		{
 			Console.WriteLine();
-			Console.WriteLine("***** SendGrid Endpoints list *****");
+			Console.WriteLine("***** Zoom Endpoints list *****");
 
 			var repoOwner = "jericho";
 			var repoNameDestination = "ZoomNet"; // Repo where we create/update the issue. Use "_testing" for testing and "ZoomNet" for production.
 
-			var meetingEndpoints = await GetSendGridEndpointsList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
-			var teamChatEndpoints = await GetSendGridEndpointsList("Team Chat", "team-chat", cancellationToken).ConfigureAwait(false);
-			var phoneEndpoints = await GetSendGridEndpointsList("Phone", "phone", cancellationToken).ConfigureAwait(false);
-			var mailEndpoints = await GetSendGridEndpointsList("Mail", "mail", cancellationToken).ConfigureAwait(false);
-			var calendarEndpoints = await GetSendGridEndpointsList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
-			var schedulerEndpoints = await GetSendGridEndpointsList("Scheduler", "scheduler", cancellationToken).ConfigureAwait(false);
-			var roomsEndpoints = await GetSendGridEndpointsList("Rooms", "rooms", cancellationToken).ConfigureAwait(false);
-			var clipsEndpoints = await GetSendGridEndpointsList("Clips", "clips", cancellationToken).ConfigureAwait(false);
-			var whiteboardEndpoints = await GetSendGridEndpointsList("Whiteboard", "whiteboard", cancellationToken).ConfigureAwait(false);
-			var crcEndpoints = await GetSendGridEndpointsList("CRC", "crc", cancellationToken).ConfigureAwait(false);
-			var chatbotEndpoints = await GetSendGridEndpointsList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
-			var aiCompanionEndpoints = await GetSendGridEndpointsList("AI Companion", "ai-companion", cancellationToken).ConfigureAwait(false);
-			var docsEndpoints = await GetSendGridEndpointsList("Zoom Docs", "zoom-docs", cancellationToken).ConfigureAwait(false);
-			var contactCenterEndpoints = await GetSendGridEndpointsList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
-			var eventsEndpoints = await GetSendGridEndpointsList("Webinar Plus & Events", "events", cancellationToken).ConfigureAwait(false);
-			var virtualAgentEndpoints = await GetSendGridEndpointsList("Virtual Agent", "virtual-agent", cancellationToken).ConfigureAwait(false);
-			var iqEndpoints = await GetSendGridEndpointsList("Revenue Accelerator", "iq", cancellationToken).ConfigureAwait(false);
-			var numberManagementEndpoints = await GetSendGridEndpointsList("Number Management", "number-management", cancellationToken).ConfigureAwait(false);
-			var qualityManagementEndpoints = await GetSendGridEndpointsList("Quality Management", "quality-management", cancellationToken).ConfigureAwait(false);
-			var workforceManagementEndpoints = await GetSendGridEndpointsList("Workforce Management", "workforce-management", cancellationToken).ConfigureAwait(false);
-			var commerceManagementEndpoints = await GetSendGridEndpointsList("Commerce", "commerce", cancellationToken).ConfigureAwait(false);
-			var healthcareEndpoints = await GetSendGridEndpointsList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
-			var videoManagementEndpoints = await GetSendGridEndpointsList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
-			var autoDialerEndpoints = await GetSendGridEndpointsList("Auto Dialer", "auto-dialer", cancellationToken).ConfigureAwait(false);
-			var usersEndpoints = await GetSendGridEndpointsList("Users", "users", cancellationToken).ConfigureAwait(false);
-			var accountsEndpoints = await GetSendGridEndpointsList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
-			var qssEndpoints = await GetSendGridEndpointsList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
-			var scim2Endpoints = await GetSendGridEndpointsList("SCIM 2", "scim2", cancellationToken).ConfigureAwait(false);
-			var videoSdkEndpoints = await GetSendGridEndpointsList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
-			var cobrowseSdkEndpoints = await GetSendGridEndpointsList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
-			var appsEndpoints = await GetSendGridEndpointsList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
+			var meetingEndpoints = await GetZoomEndpointsList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
+			var teamChatEndpoints = await GetZoomEndpointsList("Team Chat", "team-chat", cancellationToken).ConfigureAwait(false);
+			var phoneEndpoints = await GetZoomEndpointsList("Phone", "phone", cancellationToken).ConfigureAwait(false);
+			var mailEndpoints = await GetZoomEndpointsList("Mail", "mail", cancellationToken).ConfigureAwait(false);
+			var calendarEndpoints = await GetZoomEndpointsList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
+			var schedulerEndpoints = await GetZoomEndpointsList("Scheduler", "scheduler", cancellationToken).ConfigureAwait(false);
+			var roomsEndpoints = await GetZoomEndpointsList("Rooms", "rooms", cancellationToken).ConfigureAwait(false);
+			var clipsEndpoints = await GetZoomEndpointsList("Clips", "clips", cancellationToken).ConfigureAwait(false);
+			var whiteboardEndpoints = await GetZoomEndpointsList("Whiteboard", "whiteboard", cancellationToken).ConfigureAwait(false);
+			var crcEndpoints = await GetZoomEndpointsList("CRC", "crc", cancellationToken).ConfigureAwait(false);
+			var chatbotEndpoints = await GetZoomEndpointsList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
+			var aiCompanionEndpoints = await GetZoomEndpointsList("AI Companion", "ai-companion", cancellationToken).ConfigureAwait(false);
+			var docsEndpoints = await GetZoomEndpointsList("Zoom Docs", "zoom-docs", cancellationToken).ConfigureAwait(false);
+			var contactCenterEndpoints = await GetZoomEndpointsList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
+			var eventsEndpoints = await GetZoomEndpointsList("Webinar Plus & Events", "events", cancellationToken).ConfigureAwait(false);
+			var virtualAgentEndpoints = await GetZoomEndpointsList("Virtual Agent", "virtual-agent", cancellationToken).ConfigureAwait(false);
+			var iqEndpoints = await GetZoomEndpointsList("Revenue Accelerator", "iq", cancellationToken).ConfigureAwait(false);
+			var numberManagementEndpoints = await GetZoomEndpointsList("Number Management", "number-management", cancellationToken).ConfigureAwait(false);
+			var qualityManagementEndpoints = await GetZoomEndpointsList("Quality Management", "quality-management", cancellationToken).ConfigureAwait(false);
+			var workforceManagementEndpoints = await GetZoomEndpointsList("Workforce Management", "workforce-management", cancellationToken).ConfigureAwait(false);
+			var commerceManagementEndpoints = await GetZoomEndpointsList("Commerce", "commerce", cancellationToken).ConfigureAwait(false);
+			var healthcareEndpoints = await GetZoomEndpointsList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
+			var videoManagementEndpoints = await GetZoomEndpointsList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
+			var autoDialerEndpoints = await GetZoomEndpointsList("Auto Dialer", "auto-dialer", cancellationToken).ConfigureAwait(false);
+			var usersEndpoints = await GetZoomEndpointsList("Users", "users", cancellationToken).ConfigureAwait(false);
+			var accountsEndpoints = await GetZoomEndpointsList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
+			var qssEndpoints = await GetZoomEndpointsList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
+			var scim2Endpoints = await GetZoomEndpointsList("SCIM 2", "scim2", cancellationToken).ConfigureAwait(false);
+			var videoSdkEndpoints = await GetZoomEndpointsList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
+			var cobrowseSdkEndpoints = await GetZoomEndpointsList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
+			var appsEndpoints = await GetZoomEndpointsList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
 
 			var handledEndpoints = GetAllHandledEndpoints();
 
@@ -1154,7 +1154,7 @@ namespace RefreshResources
 			Console.WriteLine($"{csharpFilesUpdated} C# code files were updated");
 		}
 
-		private static async Task<(string Title, string Group, string Name, OperationType OperationType, string Summary, string Tag, string ResponseJson, string GeneratedCSharpCode)[]> GetSendGridEndpointsList(string title, string group, CancellationToken cancellationToken)
+		private static async Task<(string Title, string Group, string Name, OperationType OperationType, string Summary, string Tag, string ResponseJson, string GeneratedCSharpCode)[]> GetZoomEndpointsList(string title, string group, CancellationToken cancellationToken)
 		{
 			var url = $"https://developers.zoom.us/api-hub/{group}/methods/endpoints.json";
 
@@ -1309,7 +1309,7 @@ namespace RefreshResources
 
 		private static OpenApiSchema FlattenSchemas(OpenApiSchema schema, IEnumerable<OpenApiSchema> subschemas, OpenApiDocument doc, bool pickFirstOneOf)
 		{
-			if (subschemas == null || subschemas.Count() == 0)
+			if (subschemas == null || !subschemas.Any())
 				return schema;
 
 			var result = new OpenApiSchema
