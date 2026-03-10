@@ -668,9 +668,9 @@ namespace RefreshResources
 					ev.Sample
 				});
 
-			var issueTitle = "List of Webhook events";
-			var issueBody = new StringBuilder();
-			issueBody.Append("This issue documents the full list of webhook events in the SendGrid platform and also tracks which ones can be handled by the ZoomNet library. ");
+			var grandTotalEvents = allEvents.Count() + 1; // +1 because of endpoint.url_validation
+			var grantTotalHandled = allEvents.Count(ev => ev.IsHandled) + 1; // +1 because of endpoint.url_validation
+			Console.WriteLine($"There is a grand total of {grandTotalEvents} events and ZoomNet can handle {grantTotalHandled} of them.");
 
 			var resxPath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\Properties\\WebhooksResource.resx";
 			var resxDoc = new XmlDocument();
@@ -680,17 +680,8 @@ namespace RefreshResources
 
 			foreach (var evGrp in allEvents.GroupBy(ev => new { ev.Title, ev.Group }))
 			{
-				issueBody.AppendLine();
-				issueBody.AppendLine("<details>");
-				issueBody.AppendLine($"<summary>{evGrp.Key.Title} ({evGrp.Count(ev => ev.IsHandled)}/{evGrp.Count()})</summary>");
-				issueBody.AppendLine();
-				issueBody.AppendLine($"[Documentation](https://developers.zoom.us/docs/api/{evGrp.Key.Group}/events/)");
-				issueBody.AppendLine();
 				foreach (var ev in evGrp)
 				{
-					var checkState = ev.IsHandled ? "x" : " ";
-					issueBody.AppendLine($"- [{checkState}] {ev.EventName}");
-
 					// Add sample to ZoomNet unit testing repository
 					var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\SampleData\\Webhooks\\{ev.EventName}.json";
 					if (!File.Exists(samplePath))
@@ -717,53 +708,74 @@ namespace RefreshResources
 						resxRootNode.AppendChild(dataNode);
 					}
 				}
-				issueBody.AppendLine("</details>");
 			}
 
-			issueBody.AppendLine();
-			issueBody.AppendLine("<details>");
-			issueBody.AppendLine("<summary>Webhook endpoint validation (1/1)</summary>");
-			issueBody.AppendLine();
-			issueBody.AppendLine("[Documentation](https://developers.zoom.us/docs/api/webhooks/#validate-your-webhook-endpoint)");
-			issueBody.AppendLine();
-			issueBody.AppendLine("- [x] endpoint.url_validation");
-			issueBody.AppendLine("</details>");
-
+			SaveResxFile(resxDoc, resxPath);
 			Console.WriteLine($"{sampleFilesCreated} sample files were created");
 
-			SaveResxFile(resxDoc, resxPath);
-
-			var grandTotalEvents = allEvents.Count() + 1; // +1 because of endpoint.url_validation
-			var grantTotalHandled = allEvents.Count(ev => ev.IsHandled) + 1; // +1 because of endpoint.url_validation
-
-			issueBody.AppendLine();
-			issueBody.Append($"There is a grand total of {grandTotalEvents} events and ZoomNet can handle {grantTotalHandled} of them.");
-
-			var request = new RepositoryIssueRequest()
+			if (IsDevelopBranch("ZoomNet"))
 			{
-				Creator = repoOwner,
-				State = ItemStateFilter.Open,
-				SortProperty = IssueSort.Created,
-				SortDirection = SortDirection.Descending
-			};
+				var issueTitle = "List of Webhook events";
+				var issueBody = new StringBuilder();
+				issueBody.Append("This issue documents the full list of webhook events in the SendGrid platform and also tracks which ones can be handled by the ZoomNet library. ");
 
-			var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoNameDestination, request).ConfigureAwait(false);
-			var issue = issues.FirstOrDefault(i => i.Title.Equals(issueTitle, StringComparison.OrdinalIgnoreCase));
-			if (issue == null)
-			{
-				var newIssue = new NewIssue(issueTitle)
+				foreach (var evGrp in allEvents.GroupBy(ev => new { ev.Title, ev.Group }))
 				{
-					Body = issueBody.ToString()
+					issueBody.AppendLine();
+					issueBody.AppendLine("<details>");
+					issueBody.AppendLine($"<summary>{evGrp.Key.Title} ({evGrp.Count(ev => ev.IsHandled)}/{evGrp.Count()})</summary>");
+					issueBody.AppendLine();
+					issueBody.AppendLine($"[Documentation](https://developers.zoom.us/docs/api/{evGrp.Key.Group}/events/)");
+					issueBody.AppendLine();
+					foreach (var ev in evGrp)
+					{
+						var checkState = ev.IsHandled ? "x" : " ";
+						issueBody.AppendLine($"- [{checkState}] {ev.EventName}");
+					}
+					issueBody.AppendLine("</details>");
+				}
+
+				issueBody.AppendLine();
+				issueBody.AppendLine("<details>");
+				issueBody.AppendLine("<summary>Webhook endpoint validation (1/1)</summary>");
+				issueBody.AppendLine();
+				issueBody.AppendLine("[Documentation](https://developers.zoom.us/docs/api/webhooks/#validate-your-webhook-endpoint)");
+				issueBody.AppendLine();
+				issueBody.AppendLine("- [x] endpoint.url_validation");
+				issueBody.AppendLine("</details>");
+
+				issueBody.AppendLine();
+				issueBody.Append($"There is a grand total of {grandTotalEvents} events and ZoomNet can handle {grantTotalHandled} of them.");
+				var request = new RepositoryIssueRequest()
+				{
+					Creator = repoOwner,
+					State = ItemStateFilter.Open,
+					SortProperty = IssueSort.Created,
+					SortDirection = SortDirection.Descending
 				};
-				issue = await githubClient.Issue.Create(repoOwner, repoNameDestination, newIssue).ConfigureAwait(false);
-				Console.WriteLine($"Issue created: {issue.HtmlUrl}");
+
+				var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoNameDestination, request).ConfigureAwait(false);
+				var issue = issues.FirstOrDefault(i => i.Title.Equals(issueTitle, StringComparison.OrdinalIgnoreCase));
+				if (issue == null)
+				{
+					var newIssue = new NewIssue(issueTitle)
+					{
+						Body = issueBody.ToString()
+					};
+					issue = await githubClient.Issue.Create(repoOwner, repoNameDestination, newIssue).ConfigureAwait(false);
+					Console.WriteLine($"Issue created: {issue.HtmlUrl}");
+				}
+				else
+				{
+					var issueUpdate = issue.ToUpdate();
+					issueUpdate.Body = issueBody.ToString();
+					issue = await githubClient.Issue.Update(repoOwner, repoNameDestination, issue.Number, issueUpdate).ConfigureAwait(false);
+					Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
+				}
 			}
 			else
 			{
-				var issueUpdate = issue.ToUpdate();
-				issueUpdate.Body = issueBody.ToString();
-				issue = await githubClient.Issue.Update(repoOwner, repoNameDestination, issue.Number, issueUpdate).ConfigureAwait(false);
-				Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
+				Console.WriteLine("--> Current branch is not 'develop'. Skipping issue creation/update in GitHub repo <--");
 			}
 		}
 
@@ -1004,63 +1016,71 @@ namespace RefreshResources
 					IsHandled = IsEndpointHandledAsync(handledEndpoints, ep.Name, ep.OperationType)
 				});
 
-			var issueTitle = "List of Endpoints";
-			var issueBody = new StringBuilder();
-			issueBody.Append("This issue documents the full list of endpoints in the SendGrid API and also tracks which ones can be handled by the ZoomNet library.");
-
-			foreach (var epGrp in allEndpoints.GroupBy(ep => new { ep.Title, ep.Group }))
-			{
-				issueBody.AppendLine();
-				issueBody.AppendLine("<details>");
-				issueBody.AppendLine($"<summary>{epGrp.Key.Title} ({epGrp.Count(ep => ep.IsHandled)}/{epGrp.Count()})</summary>");
-				issueBody.AppendLine();
-				issueBody.AppendLine($"[Documentation](https://developers.zoom.us/docs/api/{epGrp.Key.Group}/)");
-
-				foreach (var tagGrp in epGrp.GroupBy(ep => ep.Tag))
-				{
-					issueBody.AppendLine();
-					issueBody.AppendLine(tagGrp.Key);
-					issueBody.AppendLine();
-					foreach (var ep in tagGrp)
-					{
-						var checkState = ep.IsHandled ? "x" : " ";
-						issueBody.AppendLine($"- [{checkState}] {ep.Summary}");
-					}
-				}
-				issueBody.AppendLine("</details>");
-			}
-
 			var grandTotalEndpoints = allEndpoints.Count();
 			var grantTotalHandled = allEndpoints.Count(ep => ep.IsHandled);
+			Console.WriteLine($"There is a grand total of {grandTotalEndpoints} endpoints and ZoomNet can handle {grantTotalHandled} of them.");
 
-			issueBody.AppendLine();
-			issueBody.Append($"There is a grand total of {grandTotalEndpoints} endpoints and ZoomNet can handle {grantTotalHandled} of them.");
-
-			var request = new RepositoryIssueRequest()
+			if (IsDevelopBranch("ZoomNet"))
 			{
-				Creator = repoOwner,
-				State = ItemStateFilter.Open,
-				SortProperty = IssueSort.Created,
-				SortDirection = SortDirection.Descending
-			};
+				var issueTitle = "List of Endpoints";
+				var issueBody = new StringBuilder();
+				issueBody.Append("This issue documents the full list of endpoints in the SendGrid API and also tracks which ones can be handled by the ZoomNet library.");
 
-			var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoNameDestination, request).ConfigureAwait(false);
-			var issue = issues.FirstOrDefault(i => i.Title.Equals(issueTitle, StringComparison.OrdinalIgnoreCase));
-			if (issue == null)
-			{
-				var newIssue = new NewIssue(issueTitle)
+				foreach (var epGrp in allEndpoints.GroupBy(ep => new { ep.Title, ep.Group }))
 				{
-					Body = issueBody.ToString()
+					issueBody.AppendLine();
+					issueBody.AppendLine("<details>");
+					issueBody.AppendLine($"<summary>{epGrp.Key.Title} ({epGrp.Count(ep => ep.IsHandled)}/{epGrp.Count()})</summary>");
+					issueBody.AppendLine();
+					issueBody.AppendLine($"[Documentation](https://developers.zoom.us/docs/api/{epGrp.Key.Group}/)");
+
+					foreach (var tagGrp in epGrp.GroupBy(ep => ep.Tag))
+					{
+						issueBody.AppendLine();
+						issueBody.AppendLine(tagGrp.Key);
+						issueBody.AppendLine();
+						foreach (var ep in tagGrp)
+						{
+							var checkState = ep.IsHandled ? "x" : " ";
+							issueBody.AppendLine($"- [{checkState}] {ep.Summary}");
+						}
+					}
+					issueBody.AppendLine("</details>");
+				}
+
+				issueBody.AppendLine();
+				issueBody.Append($"There is a grand total of {grandTotalEndpoints} endpoints and ZoomNet can handle {grantTotalHandled} of them.");
+
+				var request = new RepositoryIssueRequest()
+				{
+					Creator = repoOwner,
+					State = ItemStateFilter.Open,
+					SortProperty = IssueSort.Created,
+					SortDirection = SortDirection.Descending
 				};
-				issue = await githubClient.Issue.Create(repoOwner, repoNameDestination, newIssue).ConfigureAwait(false);
-				Console.WriteLine($"Issue created: {issue.HtmlUrl}");
+
+				var issues = await githubClient.Issue.GetAllForRepository(repoOwner, repoNameDestination, request).ConfigureAwait(false);
+				var issue = issues.FirstOrDefault(i => i.Title.Equals(issueTitle, StringComparison.OrdinalIgnoreCase));
+				if (issue == null)
+				{
+					var newIssue = new NewIssue(issueTitle)
+					{
+						Body = issueBody.ToString()
+					};
+					issue = await githubClient.Issue.Create(repoOwner, repoNameDestination, newIssue).ConfigureAwait(false);
+					Console.WriteLine($"Issue created: {issue.HtmlUrl}");
+				}
+				else
+				{
+					var issueUpdate = issue.ToUpdate();
+					issueUpdate.Body = issueBody.ToString();
+					issue = await githubClient.Issue.Update(repoOwner, repoNameDestination, issue.Number, issueUpdate).ConfigureAwait(false);
+					Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
+				}
 			}
 			else
 			{
-				var issueUpdate = issue.ToUpdate();
-				issueUpdate.Body = issueBody.ToString();
-				issue = await githubClient.Issue.Update(repoOwner, repoNameDestination, issue.Number, issueUpdate).ConfigureAwait(false);
-				Console.WriteLine($"Issue updated: {issue.HtmlUrl}");
+				Console.WriteLine("--> Current branch is not 'develop'. Skipping issue creation/update in GitHub repo <--");
 			}
 
 			var jsonSerializerOptions = new JsonSerializerOptions
@@ -1570,7 +1590,7 @@ namespace RefreshResources
 			var methodName = operation.OperationId ?? GenerateMethodName(path, operationType);
 			var returnType = GetReturnType(operation);
 
-			sb.Append($"\t\tpublic Task<{returnType}> {ToPascalCase(methodName)}(");
+			sb.Append($"\t\tpublic Task<{returnType}> {ToPascalCase(methodName)}Async(");
 
 			// Add parameters
 			var parameters = new List<string>();
@@ -1619,13 +1639,13 @@ namespace RefreshResources
 			// If there are request body properties, construct the body object
 			if (requestBodyProperties.Any())
 			{
-				sb.AppendLine("\t\t\tvar data = new");
+				sb.AppendLine("\t\t\tvar data = new JsonObject");
 				sb.AppendLine("\t\t\t{");
 				for (int i = 0; i < requestBodyProperties.Count; i++)
 				{
 					var prop = requestBodyProperties[i];
 					var comma = i < requestBodyProperties.Count - 1 ? "," : "";
-					sb.AppendLine($"\t\t\t\t{prop.Name} = {ToCamelCase(prop.Name)}{comma}");
+					sb.AppendLine($"\t\t\t\t{{ \"{prop.Name}\", {ToCamelCase(prop.Name)} }}{comma}");
 				}
 				sb.AppendLine("\t\t\t};");
 				sb.AppendLine();
@@ -1636,7 +1656,7 @@ namespace RefreshResources
 			{
 				case OperationType.Get:
 					sb.AppendLine("\t\t\treturn _client");
-					sb.AppendLine($"\t\t\t\t.GetAsync(\"{endpoint}\")");
+					sb.AppendLine($"\t\t\t\t.GetAsync(\"{endpoint.TrimStart('/')}\")");
 					foreach (var param in queryParams)
 					{
 						sb.AppendLine($"\t\t\t\t.WithArgument(\"{param.Name}\", {ToCamelCase(param.Name)})");
@@ -1646,7 +1666,7 @@ namespace RefreshResources
 					break;
 				case OperationType.Post:
 					sb.AppendLine("\t\t\treturn _client");
-					sb.AppendLine($"\t\t\t\t.PostAsync(\"{endpoint}\")");
+					sb.AppendLine($"\t\t\t\t.PostAsync(\"{endpoint.TrimStart('/')}\")");
 					if (requestBodyProperties.Any())
 					{
 						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
@@ -1660,7 +1680,7 @@ namespace RefreshResources
 					break;
 				case OperationType.Put:
 					sb.AppendLine("\t\t\treturn _client");
-					sb.AppendLine($"\t\t\t\t.PutAsync(\"{endpoint}\")");
+					sb.AppendLine($"\t\t\t\t.PutAsync(\"{endpoint.TrimStart('/')}\")");
 					if (requestBodyProperties.Any())
 					{
 						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
@@ -1674,7 +1694,7 @@ namespace RefreshResources
 					break;
 				case OperationType.Patch:
 					sb.AppendLine("\t\t\treturn _client");
-					sb.AppendLine($"\t\t\t\t.PatchAsync(\"{endpoint}\")");
+					sb.AppendLine($"\t\t\t\t.PatchAsync(\"{endpoint.TrimStart('/')}\")");
 					if (requestBodyProperties.Any())
 					{
 						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
@@ -1688,7 +1708,7 @@ namespace RefreshResources
 					break;
 				case OperationType.Delete:
 					sb.AppendLine("\t\t\treturn _client");
-					sb.AppendLine($"\t\t\t\t.DeleteAsync(\"{endpoint}\")");
+					sb.AppendLine($"\t\t\t\t.DeleteAsync(\"{endpoint.TrimStart('/')}\")");
 					foreach (var param in queryParams)
 					{
 						sb.AppendLine($"\t\t\t\t.WithArgument(\"{param.Name}\", {ToCamelCase(param.Name)})");
@@ -1774,6 +1794,14 @@ namespace RefreshResources
 
 			var pascal = ToPascalCase(input);
 			return char.ToLower(pascal[0]) + pascal.Substring(1);
+		}
+
+		private static bool IsDevelopBranch(string projectName)
+		{
+			var repo = new LibGit2Sharp.Repository(ROOT_FOLDER + projectName);
+			var currentBranchName = repo.Head.FriendlyName;
+
+			return currentBranchName.EndsWith("/develop", StringComparison.OrdinalIgnoreCase);
 		}
 	}
 }
