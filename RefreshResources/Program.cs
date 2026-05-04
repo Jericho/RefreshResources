@@ -10,6 +10,7 @@ using NuGet.Versioning;
 using Octokit;
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Enumeration;
@@ -32,7 +33,7 @@ namespace RefreshResources
 	{
 		private const string ROOT_FOLDER = "D:\\_build\\";
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
-		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much large number of concurrent connections.
+		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much larger number of concurrent connections.
 		private const int DESIRED_SDK_MAJOR_VERSION = 10;
 
 		private const string DESIRED_CAKE_VERSION_FOR_LIBRARIES = "6.1.0";
@@ -107,6 +108,7 @@ namespace RefreshResources
 
 					await RefreshZoomWebhooksList(githubClient).ConfigureAwait(false);
 					await RefreshZoomEndpointsList(githubClient).ConfigureAwait(false);
+					await RefreshZoomEnums(githubClient).ConfigureAwait(false);
 
 					// Commented out because I don't want 450 new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
@@ -1801,7 +1803,172 @@ namespace RefreshResources
 			var repo = new LibGit2Sharp.Repository(ROOT_FOLDER + projectName);
 			var currentBranchName = repo.Head.FriendlyName;
 
-			return currentBranchName.EndsWith("/develop", StringComparison.OrdinalIgnoreCase);
+			return currentBranchName.Equals("develop", StringComparison.OrdinalIgnoreCase);
+		}
+
+		private static async Task RefreshZoomEnums(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		{
+			Console.WriteLine();
+			Console.WriteLine("***** Zoom Enums *****");
+
+			var htmlParser = new HtmlWeb();
+			var htmlDoc = await htmlParser.LoadFromWebAsync($"https://developers.zoom.us/docs/api/references/abbreviations/", cancellationToken).ConfigureAwait(false);
+			var scriptData = htmlDoc.DocumentNode.SelectNodes("//script").Single(n => n.Id == "__NEXT_DATA__").InnerText;
+
+			var jsonRootElement = JsonDocument.Parse(scriptData).RootElement;
+			var content = jsonRootElement.GetProperty("props/pageProps/mainContent/matter/content", '/', true).Value.GetString();
+			var contentLines = content.Split('\n', StringSplitOptions.TrimEntries);
+
+			await RefreshAbbreviationsAsync("Languages", "Language", contentLines).ConfigureAwait(false);
+			await RefreshAbbreviationsAsync("Countries", "Country", contentLines).ConfigureAwait(false);
+			await RefreshAbbreviationsAsync("Timezones", "TimeZones", contentLines).ConfigureAwait(false);
+		}
+
+		private static async Task RefreshAbbreviationsAsync(string sectionTitle, string enumClassName, string[] contentLines)
+		{
+			var abbreviations = GetAbbreviations(sectionTitle, contentLines);
+
+			var newEnumFileContent = new StringBuilder();
+			newEnumFileContent
+				.AppendLine("using System.Runtime.Serialization;")
+				.AppendLine()
+				.AppendLine("namespace ZoomNet.Models")
+				.AppendLine("{")
+				.AppendLine($"\t/// <summary>{sectionTitle}.</summary>")
+				.AppendLine($"\tpublic enum {enumClassName}")
+				.AppendLine("\t{");
+
+			foreach ((int index, var abbreviation) in abbreviations.Index())
+			{
+				newEnumFileContent.AppendLine($"\t\t/// <summary>{abbreviation.Description}.</summary>");
+
+				if (!string.IsNullOrEmpty(abbreviation.Remarks))
+				{
+					var remarks = abbreviation.Remarks
+						.Replace("\r\n", "\n")
+						.Replace("\n", "\r\n\t\t/// ");
+					newEnumFileContent.AppendLine("\t\t/// <remarks>");
+					newEnumFileContent.AppendLine($"\t\t/// {remarks}");
+					newEnumFileContent.AppendLine("\t\t/// </remarks>");
+				}
+
+				newEnumFileContent.AppendLine($"\t\t[EnumMember(Value = \"{abbreviation.Id}\")]");
+
+				var enumName = sectionTitle switch
+				{
+					"Timezones" => abbreviation.Id?.Replace("/", "_") ?? "NotSpecified",
+					_ => abbreviation.Description
+						.Replace(" (", "_")
+						.Replace(" ", "_")
+						.Replace("'", "_")
+						.Replace("-", "_")
+						.Replace(".", "_")
+						.Replace(")", string.Empty)
+						.Replace("/", string.Empty)
+						.Replace(",", string.Empty)
+						.TrimEnd('_') // This is important because "U.S." will end up with a trailing underscore after the above replacements
+				};
+
+				newEnumFileContent.AppendLine($"\t\t{enumName},");
+
+				if (index < abbreviations.Count - 1) newEnumFileContent.AppendLine();
+			}
+
+			newEnumFileContent
+				.AppendLine("\t}")
+				.AppendLine("}");
+
+			var enumFilePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet\\Models\\{enumClassName}.cs";
+
+			var currentEnumFileContent = await File.ReadAllTextAsync(enumFilePath, CancellationToken.None).ConfigureAwait(false);
+
+			if (newEnumFileContent.ToString() != currentEnumFileContent)
+			{
+				await File.WriteAllTextAsync(enumFilePath, newEnumFileContent.ToString(), CancellationToken.None).ConfigureAwait(false);
+			}
+		}
+
+		private static ImmutableList<(string Id, string Description, string Remarks)> GetAbbreviations(string sectionTitle, string[] contentLines)
+		{
+			var searchString = $"## {sectionTitle}";
+			var sectionTitleIndex = -1;
+			var startIndex = -1;
+
+			for (int i = 0; i < contentLines.Length; i++)
+			{
+				if (contentLines[i] == searchString)
+				{
+					sectionTitleIndex = i;
+					break;
+				}
+			}
+
+			if (sectionTitleIndex == -1) throw new Exception($"Did not find section title: {sectionTitle}");
+
+			for (int i = sectionTitleIndex + 1; i < contentLines.Length; i++)
+			{
+				if (string.IsNullOrWhiteSpace(contentLines[i])) continue; // Skip blank lines
+				else if (!contentLines[i].TrimStart().StartsWith("|")) continue; // Only consider lines that start with the '|' character. In other words: exclude comments
+				else if (contentLines[i] == "| ID | Name |") continue; // Exclude table header
+				else if (contentLines[i] == "| -- | ---- |") continue; // Exclude table header separator
+				else
+				{
+					startIndex = i;
+					break;
+				}
+			}
+
+			if (startIndex == -1) throw new Exception($"Did not find start of section: {sectionTitle}");
+
+			var abbreviations = new List<(string Id, string Description, string Remarks)>();
+			for (int i = startIndex; i < contentLines.Length; i++)
+			{
+				if (string.IsNullOrEmpty(contentLines[i])) break; // Empty line means that we have processed all the lines in the sections
+
+				var lineData = contentLines[i].Split('|', StringSplitOptions.RemoveEmptyEntries);
+				var id = lineData[0].Trim().Replace("`", string.Empty);
+				var description = lineData[1].Trim().Replace("`", string.Empty);
+
+				abbreviations.Add((id, description, (string)null));
+			}
+
+			if (sectionTitle == "Languages")
+			{
+				abbreviations.Add(("cmn-CN", "Mandarin (PRC)", null));
+				abbreviations.Add(("en-AU", "English (Australia)", null));
+				abbreviations.Add(("en-NZ", "English (New Zealand)", null));
+				abbreviations.Add(("ja-JP", "Japanese (Japan)", null));
+				abbreviations.Add(("pl-PL", "Polish (Poland)", null));
+				abbreviations.Add(("ro-RO", "Romanian (Romania)", null));
+				abbreviations.Add(("ru-RU", "Russian (Russia)", null));
+				abbreviations.Add(("sv-SE", "Swedish (Sweden)", null));
+				abbreviations.Add(("tr-TR", "Turkish (Turkey)", null));
+				abbreviations.Add(("vi-VN", "Vietnamese", null));
+				abbreviations.Add(("yue-CN", "Cantonese (PRC)", null));
+				abbreviations.Add(("sh-TW", "Chinese (Taiwan)", null));
+
+				abbreviations.Remove(abbreviations.Single(abbrev => abbrev.Id == "ar"));
+				abbreviations.Remove(abbreviations.Single(abbrev => abbrev.Id == "ja"));
+				abbreviations.Remove(abbreviations.Single(abbrev => abbrev.Id == "ru"));
+			}
+			else if (sectionTitle == "Countries")
+			{
+				abbreviations.Remove(abbreviations.Single(abbrev => abbrev.Id == "UK"));
+				abbreviations.Add(("UK", "United Kingdom", "See <see cref=\"Country.United_Kingdom_of_Great_Britain_and_Northern_Ireland\"/>."));
+			}
+			else if (sectionTitle == "Timezones")
+			{
+				abbreviations.Add((null, "Not Specified", null));
+				abbreviations.Add(("Asia/Manila", "Manila", "This timezone is undocumented.\r\nSee <a href=\"https://github.com/Jericho/ZoomNet/issues/443\">GH-443</a> for details."));
+			}
+
+			return abbreviations.OrderBy(abbrev => abbrev.Id).ToImmutableList();
+		}
+
+		// From: https://stackoverflow.com/questions/47841441/how-do-i-get-the-path-to-the-current-c-sharp-source-code-file
+		private static string GetThisFilePath([CallerFilePath] string path = null)
+		{
+			return path;
 		}
 	}
 }
