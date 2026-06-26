@@ -110,7 +110,7 @@ namespace RefreshResources
 					await RefreshZoomEndpointsList(githubClient).ConfigureAwait(false);
 					await RefreshZoomEnums(githubClient).ConfigureAwait(false);
 
-					// Commented out because I don't want 450 new issues created in the ZoomNet repo
+					// Commented out because I don't want 450+ new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
 				}
 			}
@@ -941,7 +941,7 @@ namespace RefreshResources
 			var repoNameDestination = "ZoomNet"; // Repo where we create/update the issue. Use "_testing" for testing and "ZoomNet" for production.
 
 			var meetingEndpoints = await GetZoomEndpointsList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
-			var teamChatEndpoints = await GetZoomEndpointsList("Team Chat", "team-chat", cancellationToken).ConfigureAwait(false);
+			var chatEndpoints = await GetZoomEndpointsList("Chat", "chat", cancellationToken).ConfigureAwait(false);
 			var phoneEndpoints = await GetZoomEndpointsList("Phone", "phone", cancellationToken).ConfigureAwait(false);
 			var mailEndpoints = await GetZoomEndpointsList("Mail", "mail", cancellationToken).ConfigureAwait(false);
 			var calendarEndpoints = await GetZoomEndpointsList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
@@ -952,7 +952,8 @@ namespace RefreshResources
 			var crcEndpoints = await GetZoomEndpointsList("CRC", "crc", cancellationToken).ConfigureAwait(false);
 			var chatbotEndpoints = await GetZoomEndpointsList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
 			var aiCompanionEndpoints = await GetZoomEndpointsList("AI Companion", "ai-companion", cancellationToken).ConfigureAwait(false);
-			var docsEndpoints = await GetZoomEndpointsList("Zoom Docs", "zoom-docs", cancellationToken).ConfigureAwait(false);
+			var canvasEndpoints = await GetZoomEndpointsList("Canvas", "canvas", cancellationToken).ConfigureAwait(false);
+			var tasksEndpoints = await GetZoomEndpointsList("Tasks", "tasks", cancellationToken).ConfigureAwait(false);
 			var contactCenterEndpoints = await GetZoomEndpointsList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
 			var eventsEndpoints = await GetZoomEndpointsList("Webinar Plus & Events", "events", cancellationToken).ConfigureAwait(false);
 			var virtualAgentEndpoints = await GetZoomEndpointsList("Virtual Agent", "virtual-agent", cancellationToken).ConfigureAwait(false);
@@ -964,10 +965,12 @@ namespace RefreshResources
 			var healthcareEndpoints = await GetZoomEndpointsList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
 			var videoManagementEndpoints = await GetZoomEndpointsList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
 			var autoDialerEndpoints = await GetZoomEndpointsList("Auto Dialer", "auto-dialer", cancellationToken).ConfigureAwait(false);
+			var customerManagedKeysEndpoints = await GetZoomEndpointsList("Customer Managed Keys Hybrid", "customer-managed-keys-hybrid", cancellationToken).ConfigureAwait(false);
 			var usersEndpoints = await GetZoomEndpointsList("Users", "users", cancellationToken).ConfigureAwait(false);
 			var accountsEndpoints = await GetZoomEndpointsList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
 			var qssEndpoints = await GetZoomEndpointsList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
 			var scim2Endpoints = await GetZoomEndpointsList("SCIM 2", "scim2", cancellationToken).ConfigureAwait(false);
+			var aiServicesEndpoints = await GetZoomEndpointsList("AI Services", "ai-services", cancellationToken).ConfigureAwait(false);
 			var videoSdkEndpoints = await GetZoomEndpointsList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
 			var cobrowseSdkEndpoints = await GetZoomEndpointsList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
 			var appsEndpoints = await GetZoomEndpointsList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
@@ -975,7 +978,7 @@ namespace RefreshResources
 			var handledEndpoints = GetAllHandledEndpoints();
 
 			var allEndpoints = meetingEndpoints
-				.Union(teamChatEndpoints)
+				.Union(chatEndpoints)
 				.Union(phoneEndpoints)
 				.Union(mailEndpoints)
 				.Union(calendarEndpoints)
@@ -986,7 +989,8 @@ namespace RefreshResources
 				.Union(crcEndpoints)
 				.Union(chatbotEndpoints)
 				.Union(aiCompanionEndpoints)
-				.Union(docsEndpoints)
+				.Union(canvasEndpoints)
+				.Union(tasksEndpoints)
 				.Union(contactCenterEndpoints)
 				.Union(eventsEndpoints)
 				.Union(virtualAgentEndpoints)
@@ -998,10 +1002,12 @@ namespace RefreshResources
 				.Union(healthcareEndpoints)
 				.Union(videoManagementEndpoints)
 				.Union(autoDialerEndpoints)
+				.Union(customerManagedKeysEndpoints)
 				.Union(usersEndpoints)
 				.Union(accountsEndpoints)
 				.Union(qssEndpoints)
 				.Union(scim2Endpoints)
+				.Union(aiServicesEndpoints)
 				.Union(videoSdkEndpoints)
 				.Union(cobrowseSdkEndpoints)
 				.Union(appsEndpoints)
