@@ -36,7 +36,7 @@ namespace RefreshResources
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much larger number of concurrent connections.
 		private const int DESIRED_SDK_MAJOR_VERSION = 10;
 
-		private const string DESIRED_CAKE_VERSION_FOR_LIBRARIES = "6.1.0";
+		private const string DESIRED_CAKE_VERSION_FOR_LIBRARIES = "6.2.0";
 		private const string DESIRED_CAKE_VERSION_FOR_CAKE_ADDINS = "2.3.0";
 
 		private static readonly Regex _addinReferenceRegex = new(string.Format(ADDIN_REFERENCE_REGEX, "addin"), RegexOptions.Compiled | RegexOptions.Multiline);
