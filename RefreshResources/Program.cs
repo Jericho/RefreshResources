@@ -1853,9 +1853,7 @@ namespace RefreshResources
 					var remarks = abbreviation.Remarks
 						.Replace("\r\n", "\n")
 						.Replace("\n", "\r\n\t\t/// ");
-					newEnumFileContent.AppendLine("\t\t/// <remarks>");
-					newEnumFileContent.AppendLine($"\t\t/// {remarks}");
-					newEnumFileContent.AppendLine("\t\t/// </remarks>");
+					newEnumFileContent.AppendLine($"\t\t/// <remarks>{remarks}</remarks>");
 				}
 
 				newEnumFileContent.AppendLine($"\t\t[EnumMember(Value = \"{abbreviation.Id}\")]");
