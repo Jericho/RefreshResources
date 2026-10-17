@@ -1963,7 +1963,7 @@ namespace RefreshResources
 			else if (sectionTitle == "Timezones")
 			{
 				abbreviations.Add((null, "Not Specified", null));
-				abbreviations.Add(("Asia/Manila", "Manila", "This timezone is undocumented.\r\nSee <a href=\"https://github.com/Jericho/ZoomNet/issues/443\">GH-443</a> for details."));
+				abbreviations.Add(("Asia/Manila", "Manila", "This timezone is undocumented. See <a href=\"https://github.com/Jericho/ZoomNet/issues/443\">GH-443</a> for details."));
 			}
 
 			return abbreviations.OrderBy(abbrev => abbrev.Id).ToImmutableList();
