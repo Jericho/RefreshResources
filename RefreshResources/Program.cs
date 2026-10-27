@@ -1,6 +1,10 @@
 using HtmlAgilityPack;
 using LibGit2Sharp;
 using LibGit2Sharp.Handlers;
+using Markdig;
+using Markdig.Extensions.Tables;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Microsoft.OpenApi.Readers;
@@ -133,7 +137,7 @@ namespace RefreshResources
 
 					await RefreshZoomWebhooksList(httpClient, githubClient, cancellationToken).ConfigureAwait(false);
 					await RefreshZoomEndpointsList(httpClient, githubClient, cancellationToken).ConfigureAwait(false);
-					await RefreshZoomEnums(cancellationToken).ConfigureAwait(false);
+					await RefreshZoomEnums(httpClient, cancellationToken).ConfigureAwait(false);
 
 					// Commented out because I don't want 450+ new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
@@ -704,9 +708,6 @@ namespace RefreshResources
 				{
 					var formattedSample = (ev.Sample ?? string.Empty)
 						.TrimStart('\"')
-						.Replace("\\n", "\r\n")
-						.Replace("\\t", "\t")
-						.Replace("\\\"", "\"")
 						.TrimEnd('\"');
 
 					if (!string.IsNullOrEmpty(formattedSample))
@@ -1648,7 +1649,7 @@ namespace RefreshResources
 					foreach (var prop in schema.Properties)
 					{
 						var isRequired = schema.Required?.Contains(prop.Key) ?? false;
-						requestBodyProperties.Add((prop.Key, prop.Value, isRequired, prop.Value.Description));
+						requestBodyProperties.Add((prop.Key, prop.Value, isRequired, prop.Value?.Description ?? string.Empty));
 					}
 				}
 			}
@@ -1878,27 +1879,40 @@ namespace RefreshResources
 			return currentBranchName.Equals("develop", StringComparison.OrdinalIgnoreCase);
 		}
 
-		private static async Task RefreshZoomEnums(CancellationToken cancellationToken)
+		private static async Task RefreshZoomEnums(HttpClient httpClient, CancellationToken cancellationToken)
 		{
+			var url = "https://developers.zoom.us/docs/api/references/abbreviations.md";
+
+			using var httpResponse = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
+			httpResponse.EnsureSuccessStatusCode();
+
+			var markdownContent = await httpResponse.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+			// Parse the markdown into a syntax tree
+			var pipeline = new MarkdownPipelineBuilder()
+				.UseAdvancedExtensions() // Includes table parsing
+				.Build();
+
+			// Parse the markdown string
+			var markdownDocument = Markdown.Parse(markdownContent, pipeline);
+
 			Console.WriteLine();
 			Console.WriteLine("***** Zoom Enums *****");
 
-			var htmlParser = new HtmlWeb();
-			var htmlDoc = await htmlParser.LoadFromWebAsync($"https://developers.zoom.us/docs/api/references/abbreviations/", cancellationToken).ConfigureAwait(false);
-			var scriptData = htmlDoc.DocumentNode.SelectNodes("//script").Single(n => n.Id == "__NEXT_DATA__").InnerText;
 
-			var jsonRootElement = JsonDocument.Parse(scriptData).RootElement;
-			var content = jsonRootElement.GetProperty("props/pageProps/mainContent/matter/content", '/', true).Value.GetString();
-			var contentLines = content.Split('\n', StringSplitOptions.TrimEntries);
+			Console.WriteLine("  - Languages");
+			await RefreshAbbreviationsAsync("Languages", "Language", markdownDocument, cancellationToken).ConfigureAwait(false);
 
-			await RefreshAbbreviationsAsync("Languages", "Language", contentLines, cancellationToken).ConfigureAwait(false);
-			await RefreshAbbreviationsAsync("Countries", "Country", contentLines, cancellationToken).ConfigureAwait(false);
-			await RefreshAbbreviationsAsync("Timezones", "TimeZones", contentLines, cancellationToken).ConfigureAwait(false);
+			Console.WriteLine("  - Countries");
+			await RefreshAbbreviationsAsync("Countries", "Country", markdownDocument, cancellationToken).ConfigureAwait(false);
+
+			Console.WriteLine("  - Timezones");
+			await RefreshAbbreviationsAsync("Timezones", "TimeZones", markdownDocument, cancellationToken).ConfigureAwait(false);
 		}
 
-		private static async Task RefreshAbbreviationsAsync(string sectionTitle, string enumClassName, string[] contentLines, CancellationToken cancellationToken)
+		private static async Task RefreshAbbreviationsAsync(string sectionTitle, string enumClassName, MarkdownDocument markdownDocument, CancellationToken cancellationToken)
 		{
-			var abbreviations = GetAbbreviations(sectionTitle, contentLines);
+			var abbreviations = GetAbbreviations(sectionTitle, markdownDocument);
 
 			var newEnumFileContent = new StringBuilder();
 			newEnumFileContent
@@ -1958,46 +1972,24 @@ namespace RefreshResources
 			}
 		}
 
-		private static ImmutableList<(string Id, string Description, string Remarks)> GetAbbreviations(string sectionTitle, string[] contentLines)
+		private static ImmutableList<(string Id, string Description, string Remarks)> GetAbbreviations(string sectionTitle, MarkdownDocument markdownDocument)
 		{
-			var searchString = $"## {sectionTitle}";
-			var sectionTitleIndex = -1;
-			var startIndex = -1;
+			var table = FindTableByTitle(markdownDocument, sectionTitle);
+			if (table == null) throw new Exception($"Did not find section title: {sectionTitle}");
 
-			for (int i = 0; i < contentLines.Length; i++)
-			{
-				if (contentLines[i] == searchString)
-				{
-					sectionTitleIndex = i;
-					break;
-				}
-			}
-
-			if (sectionTitleIndex == -1) throw new Exception($"Did not find section title: {sectionTitle}");
-
-			for (int i = sectionTitleIndex + 1; i < contentLines.Length; i++)
-			{
-				if (string.IsNullOrWhiteSpace(contentLines[i])) continue; // Skip blank lines
-				else if (!contentLines[i].TrimStart().StartsWith('|')) continue; // Only consider lines that start with the '|' character. In other words: exclude comments
-				else if (contentLines[i] == "| ID | Name |") continue; // Exclude table header
-				else if (contentLines[i] == "| -- | ---- |") continue; // Exclude table header separator
-				else
-				{
-					startIndex = i;
-					break;
-				}
-			}
-
-			if (startIndex == -1) throw new Exception($"Did not find start of section: {sectionTitle}");
+			var rows = table
+				.OfType<TableRow>()
+				.Select(row => row
+					.OfType<TableCell>()
+					.Select(cell => GetCellText(cell))
+					.ToList())
+				.ToList();
 
 			var abbreviations = new List<(string Id, string Description, string Remarks)>();
-			for (int i = startIndex; i < contentLines.Length; i++)
+			foreach (var row in rows.Skip(1)) // skip header
 			{
-				if (string.IsNullOrEmpty(contentLines[i])) break; // Empty line means that we have processed all the lines in the sections
-
-				var lineData = contentLines[i].Split('|', StringSplitOptions.RemoveEmptyEntries);
-				var id = lineData[0].Trim().Replace("`", string.Empty);
-				var description = lineData[1].Trim().Replace("`", string.Empty);
+				string id = row[0];
+				string description = row[1];
 
 				abbreviations.Add((id, description, (string)null));
 			}
@@ -2039,6 +2031,60 @@ namespace RefreshResources
 		private static string GetThisFilePath([CallerFilePath] string path = null)
 		{
 			return path;
+		}
+
+		private static Table FindTableByTitle(MarkdownDocument doc, string title)
+		{
+			for (int i = 0; i < doc.Count - 1; i++)
+			{
+				if (doc[i] is HeadingBlock heading)
+				{
+					string headingText = heading.Inline?.FirstChild?.ToString() ?? "";
+
+					if (string.Equals(headingText, title, StringComparison.OrdinalIgnoreCase))
+					{
+						// Find next table after the heading
+						for (int j = i + 1; j < doc.Count; j++)
+						{
+							if (doc[j] is Table table)
+								return table;
+
+							// Stop if we hit another heading
+							if (doc[j] is HeadingBlock)
+								break;
+						}
+					}
+				}
+			}
+
+			return null;
+		}
+
+		private static string GetCellText(TableCell cell)
+		{
+			var sb = new StringBuilder();
+
+			foreach (var paragraph in cell.Descendants().OfType<ParagraphBlock>())
+			{
+				if (paragraph.Inline == null)
+					continue;
+
+				foreach (var inline in paragraph.Inline.Descendants())
+				{
+					switch (inline)
+					{
+						case LiteralInline literal:
+							sb.Append(literal.Content.ToString());
+							break;
+
+						case CodeInline code:
+							sb.Append(code.Content);
+							break;
+					}
+				}
+			}
+
+			return sb.ToString().Trim();
 		}
 	}
 }
