@@ -15,6 +15,7 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Enumeration;
 using System.Linq;
+using System.Net;
 using System.Net.Http;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -50,6 +51,15 @@ namespace RefreshResources
 		private static readonly Regex _httpPatchRegex = new("\\.PatchAsync\\((.*)\\)", RegexOptions.Compiled);
 		private static readonly Regex _httpPutRegex = new("\\.PutAsync\\((.*)\\)", RegexOptions.Compiled);
 		private static readonly Regex _httpDeleteRegex = new("\\.DeleteAsync\\((.*)\\)", RegexOptions.Compiled);
+
+		// Configure serializer options:
+		// - WriteIndented: true for linefeeds and indentation
+		// - Encoder: UnsafeRelaxedJsonEscaping to avoid Unicode escapes
+		private static readonly JsonSerializerOptions _relaxedEscapingJsonSerializerOptions = new()
+		{
+			WriteIndented = true,
+			Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+		};
 
 		private enum ProjectType
 		{
@@ -99,16 +109,31 @@ namespace RefreshResources
 				}
 				else
 				{
+					var cts = new CancellationTokenSource();
+					var cancellationToken = cts.Token;
+
 					var credentials = !string.IsNullOrEmpty(GITHUB_TOKEN) ? new Octokit.Credentials(GITHUB_TOKEN) : new Octokit.Credentials(GITHUB_USERNAME, GITHUB_PASSWORD);
 					var githubClient = new GitHubClient(new ProductHeaderValue("RefreshResources")) { Credentials = credentials };
 
-					await RefreshGithubLabels(githubClient).ConfigureAwait(false);
-					await RefreshResourcesAsync().ConfigureAwait(false);
-					await CopyResourceFiles().ConfigureAwait(false);
+					var isFiddlerRunning = Process.GetProcessesByName("Fiddler").Length > 0;
+					var isFiddlerEverywhereRunning = Process.GetProcessesByName("Fiddler Everywhere").Length > 0;
+					var proxyPort = isFiddlerRunning ? 8888 : (isFiddlerEverywhereRunning ? 8866 : 0);
+					var handler = new HttpClientHandler
+					{
+						UseProxy = isFiddlerRunning || isFiddlerEverywhereRunning,
+						Proxy = isFiddlerRunning || isFiddlerEverywhereRunning ? new WebProxy($"http://localhost:{proxyPort}") : null,
+					};
 
-					await RefreshZoomWebhooksList(githubClient).ConfigureAwait(false);
-					await RefreshZoomEndpointsList(githubClient).ConfigureAwait(false);
-					await RefreshZoomEnums(githubClient).ConfigureAwait(false);
+					using HttpClient httpClient = new(handler, true);
+					httpClient.DefaultRequestHeaders.UserAgent.ParseAdd("Jericho/RefreshResources");
+
+					await RefreshGithubLabels(githubClient, cancellationToken).ConfigureAwait(false);
+					await RefreshResourcesAsync(cancellationToken).ConfigureAwait(false);
+					await CopyResourceFiles(cancellationToken).ConfigureAwait(false);
+
+					await RefreshZoomWebhooksList(httpClient, githubClient, cancellationToken).ConfigureAwait(false);
+					await RefreshZoomEndpointsList(httpClient, githubClient, cancellationToken).ConfigureAwait(false);
+					await RefreshZoomEnums(cancellationToken).ConfigureAwait(false);
 
 					// Commented out because I don't want 450+ new issues created in the ZoomNet repo
 					//await CheckZoomChangeLog(githubClient).ConfigureAwait(false);
@@ -130,18 +155,18 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task RefreshGithubLabels(GitHubClient githubClient)
+		private static async Task RefreshGithubLabels(GitHubClient githubClient, CancellationToken cancellationToken)
 		{
 			Console.WriteLine();
 			Console.WriteLine("***** Github labels *****");
 
 			foreach (var project in PROJECTS)
 			{
-				await RefreshGithubLabels(githubClient, project.GitHubOwner, project.GitHubRepo).ConfigureAwait(false);
+				await RefreshGithubLabels(githubClient, project.GitHubOwner, project.GitHubRepo, cancellationToken).ConfigureAwait(false);
 			}
 		}
 
-		private static async Task RefreshGithubLabels(GitHubClient githubClient, string ownerName, string repoName)
+		private static async Task RefreshGithubLabels(GitHubClient githubClient, string ownerName, string repoName, CancellationToken cancellationToken)
 		{
 			var existingLabels = await githubClient.Issue.Labels.GetAllForRepository(ownerName, repoName).ConfigureAwait(false);
 
@@ -189,7 +214,7 @@ namespace RefreshResources
 			if (createdLabels.Count == 0 && modifiedLabels.Count == 0) Console.WriteLine($"{repoName}: All labels already up to date");
 		}
 
-		private static async Task RefreshResourcesAsync(CancellationToken cancellationToken = default)
+		private static async Task RefreshResourcesAsync(CancellationToken cancellationToken)
 		{
 			Console.WriteLine();
 			Console.WriteLine("***** Resources *****");
@@ -261,9 +286,9 @@ namespace RefreshResources
 			var toolsMatchResults = _toolReferenceRegex.Matches(buildScriptContent);
 			var loadsMatchResults = _loadReferenceRegex.Matches(buildScriptContent);
 
-			var addinsReferencesInfo = await addinsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
-			var toolsReferencesInfo = await toolsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
-			var loadsReferencesInfo = await loadsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
+			var addinsReferencesInfo = await addinsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, cancellationToken).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
+			var toolsReferencesInfo = await toolsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, cancellationToken).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
+			var loadsReferencesInfo = await loadsMatchResults.ForEachAsync(async match => await GetReferencedPackageInfo(match, cancellationToken).ConfigureAwait(false), MAX_NUGET_CONCURENCY).ConfigureAwait(false);
 
 			var referencesInfo = addinsReferencesInfo
 				.Union(toolsReferencesInfo)
@@ -305,7 +330,7 @@ namespace RefreshResources
 				}
 			};
 
-			var updatedGlobalJsonContent = JsonSerializer.Serialize(updatedSdkInfo, new JsonSerializerOptions() { WriteIndented = true });
+			var updatedGlobalJsonContent = JsonSerializer.Serialize(updatedSdkInfo, _relaxedEscapingJsonSerializerOptions);
 			using (var sw = new StreamWriter(globalJsonFilePath))
 			{
 				await sw.WriteAsync(updatedGlobalJsonContent).ConfigureAwait(false);
@@ -379,7 +404,7 @@ namespace RefreshResources
 			return latestSdkVersion;
 		}
 
-		private static async Task CopyResourceFiles()
+		private static async Task CopyResourceFiles(CancellationToken cancellationToken)
 		{
 			var files = GetSourceFiles(SOURCE_FOLDER);
 
@@ -406,11 +431,11 @@ namespace RefreshResources
 					})
 					.ToArray();
 
-				await CopyResourceFilesToProject(filesForThisProject, project).ConfigureAwait(false);
+				await CopyResourceFilesToProject(filesForThisProject, project, cancellationToken).ConfigureAwait(false);
 			}
 		}
 
-		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resourceFiles, (string GitHubOwner, string GitHubRepoName, ProjectType ProjectType) project)
+		private static async Task CopyResourceFilesToProject(IEnumerable<FileInfo> resourceFiles, (string GitHubOwner, string GitHubRepoName, ProjectType ProjectType) project, CancellationToken cancellationToken)
 		{
 			ArgumentNullException.ThrowIfNullOrEmpty(project.GitHubOwner, $"{nameof(project)}.{nameof(project.GitHubOwner)}");
 			ArgumentNullException.ThrowIfNullOrEmpty(project.GitHubRepoName, $"{nameof(project)}.{nameof(project.GitHubRepoName)}");
@@ -526,7 +551,7 @@ namespace RefreshResources
 			return areEqual;
 		}
 
-		private static async Task<NuGetVersion> GetLatestNugetPackageVersion(string packageName, string packageSource, bool includePrerelease)
+		private static async Task<NuGetVersion> GetLatestNugetPackageVersion(string packageName, string packageSource, bool includePrerelease, CancellationToken cancellationToken)
 		{
 			var metadataClient = PackageMetadataResourceManager.GetClient(packageSource);
 			var searchMetadata = await metadataClient.GetMetadataAsync(packageName, includePrerelease, false, new SourceCacheContext(), NullLogger.Instance, CancellationToken.None).ConfigureAwait(false);
@@ -547,7 +572,7 @@ namespace RefreshResources
 			return latestPackage?.Identity?.Version;
 		}
 
-		private static async Task<(string Name, string ReferencedVersion, string LatestVersion, string LatestPackageSource)> GetReferencedPackageInfo(Match match)
+		private static async Task<(string Name, string ReferencedVersion, string LatestVersion, string LatestPackageSource)> GetReferencedPackageInfo(Match match, CancellationToken cancellationToken)
 		{
 			var parameters = HttpUtility.ParseQueryString(match.Groups["referencestring"].Value);
 			var packageRepository = match.Groups["packagerepository"].Value;
@@ -555,10 +580,10 @@ namespace RefreshResources
 			var referencedVersion = parameters["version"];
 
 			// Get the latest version from NuGet.org
-			var latestVersionFromNuGet = await GetLatestNugetPackageVersion(packageName, null, false).ConfigureAwait(false);
+			var latestVersionFromNuGet = await GetLatestNugetPackageVersion(packageName, null, false, cancellationToken).ConfigureAwait(false);
 
 			// Get the latest version from custom source (if applicable)
-			var latestVersionFromCustomSource = string.IsNullOrEmpty(packageRepository) ? null : await GetLatestNugetPackageVersion(packageName, packageRepository, true).ConfigureAwait(false);
+			var latestVersionFromCustomSource = string.IsNullOrEmpty(packageRepository) ? null : await GetLatestNugetPackageVersion(packageName, packageRepository, true, cancellationToken).ConfigureAwait(false);
 
 			// Determine which version is the most recent
 			if (latestVersionFromNuGet == null && latestVersionFromCustomSource == null) throw new Exception($"Unable to find package '{packageName}'");
@@ -599,7 +624,7 @@ namespace RefreshResources
 			return newContent.ToString();
 		}
 
-		private static async Task RefreshZoomWebhooksList(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		private static async Task RefreshZoomWebhooksList(HttpClient httpClient, GitHubClient githubClient, CancellationToken cancellationToken)
 		{
 			Console.WriteLine();
 			Console.WriteLine("***** Zoom Webhooks list *****");
@@ -612,30 +637,30 @@ namespace RefreshResources
 			var contents = await githubClient.Repository.Content.GetAllContents(repoOwner, repoNameSource, resourcePath).ConfigureAwait(false);
 			var eventTypeCSharpSource = contents[0].Content;
 
-			var meetingEvents = await GetZoomWebhooksList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
-			var rtmsEvents = await GetZoomWebhooksList("RTMS", "rtms", cancellationToken).ConfigureAwait(false);
-			var teamChatEvents = await GetZoomWebhooksList("Team Chat", "team-chat", cancellationToken).ConfigureAwait(false);
-			var phoneEvents = await GetZoomWebhooksList("Phone", "phone", cancellationToken).ConfigureAwait(false);
-			var mailEvents = await GetZoomWebhooksList("Mail", "mail", cancellationToken).ConfigureAwait(false);
-			var calendarEvents = await GetZoomWebhooksList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
-			var roomsEvents = await GetZoomWebhooksList("Rooms", "rooms", cancellationToken).ConfigureAwait(false);
-			var whiteboardEvents = await GetZoomWebhooksList("Whiteboard", "whiteboard", cancellationToken).ConfigureAwait(false);
-			var chatbotEvents = await GetZoomWebhooksList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
-			var schedulerEvents = await GetZoomWebhooksList("Scheduler", "scheduler", cancellationToken).ConfigureAwait(false);
-			var contactCenterEvents = await GetZoomWebhooksList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
-			var eventsEvents = await GetZoomWebhooksList("Events", "events", cancellationToken).ConfigureAwait(false);
-			var iqEvents = await GetZoomWebhooksList("Revenue Accelerator", "iq", cancellationToken).ConfigureAwait(false);
-			var numberManagementEvents = await GetZoomWebhooksList("Number Management", "number-management", cancellationToken).ConfigureAwait(false);
-			var nodeEvents = await GetZoomWebhooksList("Node", "node", cancellationToken).ConfigureAwait(false);
-			var qualityManagementEvents = await GetZoomWebhooksList("Quality Management", "quality-management", cancellationToken).ConfigureAwait(false);
-			var healthcareEvents = await GetZoomWebhooksList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
-			var videoManagementEvents = await GetZoomWebhooksList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
-			var usersEvents = await GetZoomWebhooksList("Users", "users", cancellationToken).ConfigureAwait(false);
-			var accountsEvents = await GetZoomWebhooksList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
-			var qssEvents = await GetZoomWebhooksList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
-			var videoSdkEvents = await GetZoomWebhooksList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
-			var cobrowseSdkEvents = await GetZoomWebhooksList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
-			var appsEvents = await GetZoomWebhooksList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
+			var meetingEvents = await GetZoomWebhooksList(httpClient, "Meetings", "meetings", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var rtmsEvents = await GetZoomWebhooksList(httpClient, "RTMS", "rtms", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var teamChatEvents = await GetZoomWebhooksList(httpClient, "Chat", "chat", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var phoneEvents = await GetZoomWebhooksList(httpClient, "Phone", "phone", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var mailEvents = await GetZoomWebhooksList(httpClient, "Mail", "mail", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var calendarEvents = await GetZoomWebhooksList(httpClient, "Calendar", "calendar", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var roomsEvents = await GetZoomWebhooksList(httpClient, "Rooms", "rooms", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var whiteboardEvents = await GetZoomWebhooksList(httpClient, "Whiteboard", "whiteboard", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var chatbotEvents = await GetZoomWebhooksList(httpClient, "Chatbot", "chatbot", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var schedulerEvents = await GetZoomWebhooksList(httpClient, "Scheduler", "scheduler", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var contactCenterEvents = await GetZoomWebhooksList(httpClient, "Contact Center", "contact-center", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var eventsEvents = await GetZoomWebhooksList(httpClient, "Events", "events", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var iqEvents = await GetZoomWebhooksList(httpClient, "Revenue Accelerator", "iq", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var numberManagementEvents = await GetZoomWebhooksList(httpClient, "Number Management", "number-management", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var nodeEvents = await GetZoomWebhooksList(httpClient, "Node", "node", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var qualityManagementEvents = await GetZoomWebhooksList(httpClient, "Quality Management", "quality-management", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var healthcareEvents = await GetZoomWebhooksList(httpClient, "Healthcare", "healthcare", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var videoManagementEvents = await GetZoomWebhooksList(httpClient, "Video Management", "video-management", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var usersEvents = await GetZoomWebhooksList(httpClient, "Users", "users", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var accountsEvents = await GetZoomWebhooksList(httpClient, "Accounts", "accounts", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var qssEvents = await GetZoomWebhooksList(httpClient, "Quality of Service Subscription (QSS)", "qss", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var videoSdkEvents = await GetZoomWebhooksList(httpClient, "Video SDK", "video-sdk", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var cobrowseSdkEvents = await GetZoomWebhooksList(httpClient, "Cobrowse SDK", "cobrowse-sdk", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
+			var appsEvents = await GetZoomWebhooksList(httpClient, "Apps", "marketplace", eventTypeCSharpSource, cancellationToken).ConfigureAwait(false);
 
 			var allEvents = meetingEvents
 				.Union(rtmsEvents)
@@ -660,15 +685,7 @@ namespace RefreshResources
 				.Union(qssEvents)
 				.Union(videoSdkEvents)
 				.Union(cobrowseSdkEvents)
-				.Union(appsEvents)
-				.Select(ev => new
-				{
-					ev.Title,
-					ev.Group,
-					EventName = ev.Name,
-					IsHandled = eventTypeCSharpSource.Contains(ev.Name),
-					ev.Sample
-				});
+				.Union(appsEvents);
 
 			var grandTotalEvents = allEvents.Count() + 1; // +1 because of endpoint.url_validation
 			var grantTotalHandled = allEvents.Count(ev => ev.IsHandled) + 1; // +1 because of endpoint.url_validation
@@ -679,41 +696,61 @@ namespace RefreshResources
 			resxDoc.Load(resxPath);
 			var resxRootNode = resxDoc.DocumentElement.SelectSingleNode("/root");
 			var sampleFilesCreated = 0;
+			var sampleFilesUpdated = 0;
 
 			foreach (var evGrp in allEvents.GroupBy(ev => new { ev.Title, ev.Group }))
 			{
 				foreach (var ev in evGrp)
 				{
-					// Add sample to ZoomNet unit testing repository
-					var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\SampleData\\Webhooks\\{ev.EventName}.json";
-					if (!File.Exists(samplePath))
+					var formattedSample = (ev.Sample ?? string.Empty)
+						.TrimStart('\"')
+						.Replace("\\n", "\r\n")
+						.Replace("\\t", "\t")
+						.Replace("\\\"", "\"")
+						.TrimEnd('\"');
+
+					if (!string.IsNullOrEmpty(formattedSample))
 					{
-						var sample = ev.Sample
-							.TrimStart('\"')
-							.Replace("\\n", "\r\n")
-							.Replace("\\t", "\t")
-							.Replace("\\\"", "\"")
-							.TrimEnd('\"');
-						File.WriteAllText(samplePath, sample);
-						sampleFilesCreated++;
+						// Parse JSON into a JsonDocument
+						using JsonDocument doc = JsonDocument.Parse(formattedSample);
 
-						var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
-						var nameAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("name"));
-						nameAttribute.Value = ev.EventName.Replace('.', '_'); // replace all '.' with '_'
-						var typeAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("type"));
-						typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
+						// Serialize back to a formatted string
+						formattedSample = JsonSerializer.Serialize(doc.RootElement, _relaxedEscapingJsonSerializerOptions);
 
-						var valueNode = resxDoc.CreateNode(XmlNodeType.Element, "value", null);
-						valueNode.InnerText = $@"..\SampleData\Webhooks\{ev.EventName}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
-						dataNode.AppendChild(valueNode);
+						// Add sample to ZoomNet unit testing repository
+						var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\SampleData\\Webhooks\\{ev.Name}.json";
+						if (!File.Exists(samplePath))
+						{
+							File.WriteAllText(samplePath, formattedSample);
+							sampleFilesCreated++;
 
-						resxRootNode.AppendChild(dataNode);
+							var dataNode = resxDoc.CreateNode(XmlNodeType.Element, "data", null);
+							var nameAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("name"));
+							nameAttribute.Value = ev.Name.Replace('.', '_'); // replace all '.' with '_'
+							var typeAttribute = dataNode.Attributes.Append(resxDoc.CreateAttribute("type"));
+							typeAttribute.Value = "System.Resources.ResXFileRef, System.Windows.Forms";
+
+							var valueNode = resxDoc.CreateNode(XmlNodeType.Element, "value", null);
+							valueNode.InnerText = $@"..\SampleData\Webhooks\{ev.Name}.json;System.String, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089;utf-8";
+							dataNode.AppendChild(valueNode);
+
+							resxRootNode.AppendChild(dataNode);
+						}
+						else
+						{
+							if (!SameContent(formattedSample, new FileInfo(samplePath)))
+							{
+								File.WriteAllText(samplePath, formattedSample);
+								sampleFilesUpdated++;
+							}
+						}
 					}
 				}
 			}
 
 			SaveResxFile(resxDoc, resxPath);
 			Console.WriteLine($"{sampleFilesCreated} sample files were created");
+			Console.WriteLine($"{sampleFilesUpdated} sample files were updated");
 
 			if (IsDevelopBranch("ZoomNet"))
 			{
@@ -732,7 +769,7 @@ namespace RefreshResources
 					foreach (var ev in evGrp)
 					{
 						var checkState = ev.IsHandled ? "x" : " ";
-						issueBody.AppendLine($"- [{checkState}] {ev.EventName}");
+						issueBody.AppendLine($"- [{checkState}] {ev.Name}");
 					}
 					issueBody.AppendLine("</details>");
 				}
@@ -798,39 +835,62 @@ namespace RefreshResources
 			};
 
 			// Save using XmlWriter
-			using (XmlWriter writer = XmlWriter.Create(resxPath, settings))
-			{
-				resxDoc.Save(writer);
-			}
+			using XmlWriter writer = XmlWriter.Create(resxPath, settings);
+			resxDoc.Save(writer);
 		}
 
-		private static async Task<(string Title, string Group, string Name, string Sample)[]> GetZoomWebhooksList(string title, string group, CancellationToken cancellationToken)
+		private static async Task<ZoomWebhookInfo[]> GetZoomWebhooksList(HttpClient httpClient, string title, string group, string eventTypeCSharpSource, CancellationToken cancellationToken)
 		{
-			var url = $"https://developers.zoom.us/api-hub/{group}/events/webhooks.json";
-			using HttpClient client = new();
+			var url = $"https://developers.zoom.us/api/zoap/{group}/events/";
 
-			var httpResponse = await client.GetAsync(url, cancellationToken).ConfigureAwait(false);
-			if (httpResponse.IsSuccessStatusCode)
+			var httpResponse = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
+			httpResponse.EnsureSuccessStatusCode();
+
+			var jsonContent = await httpResponse.Content.ReadAsStringAsync(cancellationToken);
+			var jsonRootElement = JsonDocument.Parse(jsonContent).RootElement;
+
+			if (jsonRootElement.TryGetProperty("paths", out JsonElement jsonWebhooks))
 			{
-				var jsonContent = await httpResponse.Content.ReadAsStringAsync(cancellationToken);
-				var jsonRootElement = JsonDocument.Parse(jsonContent).RootElement;
+				var webhooks = jsonWebhooks
+					.EnumerateObject()
+					.Select(prop =>
+					{
+						prop.Value.TryGetProperty("post", out JsonElement postProperty);
+						postProperty.TryGetProperty("requestBody", out JsonElement requestBodyProperty);
+						requestBodyProperty.TryGetProperty("content", out JsonElement contentProperty);
+						contentProperty.TryGetProperty("application/json", out JsonElement appJsonProperty);
 
-				if (jsonRootElement.TryGetProperty("webhooks", out JsonElement jsonWebhooks))
-				{
-					var webhooks = jsonWebhooks
-						.EnumerateObject()
-						.Select(prop => (title, group, prop.Name, prop.Value.GetProperty("post\\requestBody\\content\\application/json\\examples\\json-example\\value", '\\', true).Value.GetRawText()))
-						.OrderBy(w => w.Name)
-						.ToArray();
+						// Sometimes the "examples" element is missing, so we need to check for that
+						var samplePayload = string.Empty;
+						if (appJsonProperty.TryGetProperty("examples", out JsonElement examplesProperty))
+						{
+							examplesProperty.TryGetProperty("default", out JsonElement defaultExampleProperty);
+							defaultExampleProperty.TryGetProperty("value", out JsonElement exampleValueProperty);
+							samplePayload = exampleValueProperty.GetRawText();
+						}
 
-					return webhooks;
-				}
+						return new ZoomWebhookInfo
+						{
+							IsDeprecated = prop.Value.GetProperty("post").GetProperty("deprecated").GetBoolean(),
+							Description = prop.Value.GetProperty("post").GetProperty("description").GetString(),
+							OperationId = prop.Value.GetProperty("post").GetProperty("operationId").GetString(),
+							Title = title,
+							Group = group,
+							Name = prop.Name,
+							IsHandled = eventTypeCSharpSource.Contains(prop.Name),
+							Sample = samplePayload
+						};
+					})
+					.OrderBy(w => w.Name)
+					.ToArray();
+
+				return webhooks;
 			}
 
 			return [];
 		}
 
-		private static async Task CheckZoomChangeLog(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		private static async Task CheckZoomChangeLog(GitHubClient githubClient, CancellationToken cancellationToken)
 		{
 			var repoOwner = "jericho";
 			var repoName = "zoomnet";
@@ -917,7 +977,7 @@ namespace RefreshResources
 				var title = frontMatter.GetProperty("title").GetString();
 				var description = frontMatter.GetProperty("description").GetString();
 
-				var markdown = $"{releaseDate.ToShortDateString()} - [{title}]({fullPath})";
+				var markdown = $"{releaseDate:d} - [{title}]({fullPath})";
 
 				var tags = frontMatter
 					.GetProperty("tags")
@@ -932,7 +992,7 @@ namespace RefreshResources
 			}
 		}
 
-		private static async Task RefreshZoomEndpointsList(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		private static async Task RefreshZoomEndpointsList(HttpClient httpClient, GitHubClient githubClient, CancellationToken cancellationToken)
 		{
 			Console.WriteLine();
 			Console.WriteLine("***** Zoom Endpoints list *****");
@@ -940,42 +1000,42 @@ namespace RefreshResources
 			var repoOwner = "jericho";
 			var repoNameDestination = "ZoomNet"; // Repo where we create/update the issue. Use "_testing" for testing and "ZoomNet" for production.
 
-			var meetingEndpoints = await GetZoomEndpointsList("Meetings", "meetings", cancellationToken).ConfigureAwait(false);
-			var chatEndpoints = await GetZoomEndpointsList("Chat", "chat", cancellationToken).ConfigureAwait(false);
-			var phoneEndpoints = await GetZoomEndpointsList("Phone", "phone", cancellationToken).ConfigureAwait(false);
-			var mailEndpoints = await GetZoomEndpointsList("Mail", "mail", cancellationToken).ConfigureAwait(false);
-			var calendarEndpoints = await GetZoomEndpointsList("Calendar", "calendar", cancellationToken).ConfigureAwait(false);
-			var schedulerEndpoints = await GetZoomEndpointsList("Scheduler", "scheduler", cancellationToken).ConfigureAwait(false);
-			var roomsEndpoints = await GetZoomEndpointsList("Rooms", "rooms", cancellationToken).ConfigureAwait(false);
-			var clipsEndpoints = await GetZoomEndpointsList("Clips", "clips", cancellationToken).ConfigureAwait(false);
-			var whiteboardEndpoints = await GetZoomEndpointsList("Whiteboard", "whiteboard", cancellationToken).ConfigureAwait(false);
-			var crcEndpoints = await GetZoomEndpointsList("CRC", "crc", cancellationToken).ConfigureAwait(false);
-			var chatbotEndpoints = await GetZoomEndpointsList("Chatbot", "chatbot", cancellationToken).ConfigureAwait(false);
-			var aiCompanionEndpoints = await GetZoomEndpointsList("AI Companion", "ai-companion", cancellationToken).ConfigureAwait(false);
-			var canvasEndpoints = await GetZoomEndpointsList("Canvas", "canvas", cancellationToken).ConfigureAwait(false);
-			var tasksEndpoints = await GetZoomEndpointsList("Tasks", "tasks", cancellationToken).ConfigureAwait(false);
-			var contactCenterEndpoints = await GetZoomEndpointsList("Contact Center", "contact-center", cancellationToken).ConfigureAwait(false);
-			var eventsEndpoints = await GetZoomEndpointsList("Webinar Plus & Events", "events", cancellationToken).ConfigureAwait(false);
-			var virtualAgentEndpoints = await GetZoomEndpointsList("Virtual Agent", "virtual-agent", cancellationToken).ConfigureAwait(false);
-			var iqEndpoints = await GetZoomEndpointsList("Revenue Accelerator", "iq", cancellationToken).ConfigureAwait(false);
-			var numberManagementEndpoints = await GetZoomEndpointsList("Number Management", "number-management", cancellationToken).ConfigureAwait(false);
-			var qualityManagementEndpoints = await GetZoomEndpointsList("Quality Management", "quality-management", cancellationToken).ConfigureAwait(false);
-			var workforceManagementEndpoints = await GetZoomEndpointsList("Workforce Management", "workforce-management", cancellationToken).ConfigureAwait(false);
-			var commerceManagementEndpoints = await GetZoomEndpointsList("Commerce", "commerce", cancellationToken).ConfigureAwait(false);
-			var healthcareEndpoints = await GetZoomEndpointsList("Healthcare", "healthcare", cancellationToken).ConfigureAwait(false);
-			var videoManagementEndpoints = await GetZoomEndpointsList("Video Management", "video-management", cancellationToken).ConfigureAwait(false);
-			var autoDialerEndpoints = await GetZoomEndpointsList("Auto Dialer", "auto-dialer", cancellationToken).ConfigureAwait(false);
-			var customerManagedKeysEndpoints = await GetZoomEndpointsList("Customer Managed Keys Hybrid", "customer-managed-keys-hybrid", cancellationToken).ConfigureAwait(false);
-			var usersEndpoints = await GetZoomEndpointsList("Users", "users", cancellationToken).ConfigureAwait(false);
-			var accountsEndpoints = await GetZoomEndpointsList("Accounts", "accounts", cancellationToken).ConfigureAwait(false);
-			var qssEndpoints = await GetZoomEndpointsList("Quality of Service Subscription (QSS)", "qss", cancellationToken).ConfigureAwait(false);
-			var scim2Endpoints = await GetZoomEndpointsList("SCIM 2", "scim2", cancellationToken).ConfigureAwait(false);
-			var aiServicesEndpoints = await GetZoomEndpointsList("AI Services", "ai-services", cancellationToken).ConfigureAwait(false);
-			var videoSdkEndpoints = await GetZoomEndpointsList("Video SDK", "video-sdk", cancellationToken).ConfigureAwait(false);
-			var cobrowseSdkEndpoints = await GetZoomEndpointsList("Cobrowse SDK", "cobrowse-sdk", cancellationToken).ConfigureAwait(false);
-			var appsEndpoints = await GetZoomEndpointsList("Apps", "marketplace", cancellationToken).ConfigureAwait(false);
-
 			var handledEndpoints = GetAllHandledEndpoints();
+
+			var meetingEndpoints = await GetZoomEndpointsList(httpClient, "Meetings", "meetings", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var chatEndpoints = await GetZoomEndpointsList(httpClient, "Chat", "chat", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var phoneEndpoints = await GetZoomEndpointsList(httpClient, "Phone", "phone", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var mailEndpoints = await GetZoomEndpointsList(httpClient, "Mail", "mail", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var calendarEndpoints = await GetZoomEndpointsList(httpClient, "Calendar", "calendar", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var schedulerEndpoints = await GetZoomEndpointsList(httpClient, "Scheduler", "scheduler", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var roomsEndpoints = await GetZoomEndpointsList(httpClient, "Rooms", "rooms", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var clipsEndpoints = await GetZoomEndpointsList(httpClient, "Clips", "clips", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var whiteboardEndpoints = await GetZoomEndpointsList(httpClient, "Whiteboard", "whiteboard", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var crcEndpoints = await GetZoomEndpointsList(httpClient, "CRC", "crc", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var chatbotEndpoints = await GetZoomEndpointsList(httpClient, "Chatbot", "chatbot", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var aiCompanionEndpoints = await GetZoomEndpointsList(httpClient, "AI Companion", "ai-companion", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var canvasEndpoints = await GetZoomEndpointsList(httpClient, "Canvas", "canvas", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var tasksEndpoints = await GetZoomEndpointsList(httpClient, "Tasks", "tasks", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var contactCenterEndpoints = await GetZoomEndpointsList(httpClient, "Contact Center", "contact-center", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var eventsEndpoints = await GetZoomEndpointsList(httpClient, "Webinar Plus & Events", "events", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var virtualAgentEndpoints = await GetZoomEndpointsList(httpClient, "Virtual Agent", "virtual-agent", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var iqEndpoints = await GetZoomEndpointsList(httpClient, "Revenue Accelerator", "iq", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var numberManagementEndpoints = await GetZoomEndpointsList(httpClient, "Number Management", "number-management", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var qualityManagementEndpoints = await GetZoomEndpointsList(httpClient, "Quality Management", "quality-management", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var workforceManagementEndpoints = await GetZoomEndpointsList(httpClient, "Workforce Management", "workforce-management", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var commerceManagementEndpoints = await GetZoomEndpointsList(httpClient, "Commerce", "commerce", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var healthcareEndpoints = await GetZoomEndpointsList(httpClient, "Healthcare", "healthcare", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var videoManagementEndpoints = await GetZoomEndpointsList(httpClient, "Video Management", "video-management", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var autoDialerEndpoints = await GetZoomEndpointsList(httpClient, "Auto Dialer", "auto-dialer", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var customerManagedKeysEndpoints = await GetZoomEndpointsList(httpClient, "Customer Managed Keys Hybrid", "customer-managed-keys-hybrid", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var usersEndpoints = await GetZoomEndpointsList(httpClient, "Users", "users", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var accountsEndpoints = await GetZoomEndpointsList(httpClient, "Accounts", "accounts", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var qssEndpoints = await GetZoomEndpointsList(httpClient, "Quality of Service Subscription (QSS)", "qss", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var scim2Endpoints = await GetZoomEndpointsList(httpClient, "SCIM 2", "scim2", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var aiServicesEndpoints = await GetZoomEndpointsList(httpClient, "AI Services", "ai-services", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var videoSdkEndpoints = await GetZoomEndpointsList(httpClient, "Video SDK", "video-sdk", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var cobrowseSdkEndpoints = await GetZoomEndpointsList(httpClient, "Cobrowse SDK", "cobrowse-sdk", handledEndpoints, cancellationToken).ConfigureAwait(false);
+			var appsEndpoints = await GetZoomEndpointsList(httpClient, "Apps", "marketplace", handledEndpoints, cancellationToken).ConfigureAwait(false);
 
 			var allEndpoints = meetingEndpoints
 				.Union(chatEndpoints)
@@ -1010,19 +1070,7 @@ namespace RefreshResources
 				.Union(aiServicesEndpoints)
 				.Union(videoSdkEndpoints)
 				.Union(cobrowseSdkEndpoints)
-				.Union(appsEndpoints)
-				.Select(ep => new
-				{
-					ep.Title,
-					ep.Group,
-					ep.Name,
-					ep.OperationType,
-					ep.Summary,
-					ep.Tag,
-					ep.ResponseJson,
-					ep.GeneratedCSharpCode,
-					IsHandled = IsEndpointHandledAsync(handledEndpoints, ep.Name, ep.OperationType)
-				});
+				.Union(appsEndpoints);
 
 			var grandTotalEndpoints = allEndpoints.Count();
 			var grantTotalHandled = allEndpoints.Count(ep => ep.IsHandled);
@@ -1106,7 +1154,7 @@ namespace RefreshResources
 			// Create files containing the JSON response for each endpoint
 			foreach (var endpoint in allEndpoints.Where(endpoint => !string.IsNullOrEmpty(endpoint.ResponseJson)))
 			{
-				var filename = $"{endpoint.Name.TrimStart('/').Replace('\\', '-').Replace('/', '-')}_{endpoint.OperationType.ToString().ToUpper()}";
+				var filename = $"{endpoint.Name.TrimStart('/').Replace('\\', '-').Replace('/', '-')}_{endpoint.Operation.ToString().ToUpper()}";
 				var samplePath = $"D:\\_build\\ZoomNet\\Source\\ZoomNet.UnitTests\\SampleData\\Endpoints\\{filename}.json";
 				var sample = endpoint.ResponseJson
 					.TrimStart('\"')
@@ -1154,26 +1202,46 @@ namespace RefreshResources
 			var csharpFilesCreated = 0;
 			var csharpFilesUpdated = 0;
 
-			foreach (var endpoint in allEndpoints.Where(endpoint => !endpoint.IsHandled && !string.IsNullOrEmpty(endpoint.GeneratedCSharpCode)))
+			foreach (var endpointGroup in allEndpoints.Where(endpoint => !endpoint.IsHandled && !string.IsNullOrEmpty(endpoint.GeneratedCSharpCode)).GroupBy(endpoint => endpoint.Group))
 			{
-				Debug.WriteLine($"Endpoint: {endpoint.Name}, HTTP Verb: {endpoint.OperationType.ToString()}");
-				var className = ToPascalCase(endpoint.Group);
-				var methodName = GenerateMethodName(endpoint.Name, endpoint.OperationType);
-
-				var filename = $"{className}_{methodName}.cs";
+				var className = ToPascalCase(endpointGroup.Key);
+				var filename = $"{className}.cs";
 				var codePath = Path.Combine(csharpCodePath, filename);
+				var sb = new StringBuilder();
+
+				sb.AppendLine("using System;");
+				sb.AppendLine("using System.Collections.Generic;");
+				sb.AppendLine("using System.Threading;");
+				sb.AppendLine("using System.Threading.Tasks;");
+				sb.AppendLine();
+				sb.AppendLine("namespace ZoomNet.Resources");
+				sb.AppendLine("{");
+				sb.AppendLine($"\tpublic partial class {className}");
+				sb.AppendLine("\t{");
+
+
+				foreach (var endpoint in endpointGroup)
+				{
+					sb.AppendLine(endpoint.GeneratedCSharpCode);
+				}
+
+				sb.AppendLine("\t}");
+				sb.AppendLine("}");
+				sb.AppendLine();
+
+				var codeContent = sb.ToString();
 
 				if (File.Exists(codePath))
 				{
-					if (!SameContent(endpoint.GeneratedCSharpCode, new FileInfo(codePath)))
+					if (!SameContent(codeContent, new FileInfo(codePath)))
 					{
-						await File.WriteAllTextAsync(codePath, endpoint.GeneratedCSharpCode, cancellationToken).ConfigureAwait(false);
+						await File.WriteAllTextAsync(codePath, codeContent, cancellationToken).ConfigureAwait(false);
 						csharpFilesUpdated++;
 					}
 				}
 				else
 				{
-					await File.WriteAllTextAsync(codePath, endpoint.GeneratedCSharpCode, cancellationToken).ConfigureAwait(false);
+					await File.WriteAllTextAsync(codePath, codeContent, cancellationToken).ConfigureAwait(false);
 					csharpFilesCreated++;
 				}
 			}
@@ -1182,12 +1250,14 @@ namespace RefreshResources
 			Console.WriteLine($"{csharpFilesUpdated} C# code files were updated");
 		}
 
-		private static async Task<(string Title, string Group, string Name, OperationType OperationType, string Summary, string Tag, string ResponseJson, string GeneratedCSharpCode)[]> GetZoomEndpointsList(string title, string group, CancellationToken cancellationToken)
+		private static async Task<ZoomEndpointInfo[]> GetZoomEndpointsList(HttpClient httpClient, string title, string group, (string Endpoint, OperationType OperationType)[] handledEndpoints, CancellationToken cancellationToken)
 		{
-			var url = $"https://developers.zoom.us/api-hub/{group}/methods/endpoints.json";
+			var url = $"https://developers.zoom.us/api/zoap/{group}/methods/";
 
-			using HttpClient client = new();
-			using var stream = await client.GetStreamAsync(url, cancellationToken).ConfigureAwait(false);
+			using var httpResponse = await httpClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
+			httpResponse.EnsureSuccessStatusCode();
+
+			using var stream = await httpResponse.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
 			var openApiReader = new OpenApiStreamReader();
 			var openApiDocument = openApiReader.Read(stream, out var diagnostic);
@@ -1195,16 +1265,19 @@ namespace RefreshResources
 			if (openApiDocument.Paths.Any())
 			{
 				var endpoints = openApiDocument.Paths
-					.SelectMany(path => path.Value.Operations.Select(operation => (
-						Title: title,
-						Group: group,
-						Name: path.Key,
-						OperationType: operation.Key,
-						Summary: operation.Value.Summary,
-						Tag: operation.Value.Tags.First().Name,
-						ResponseJson: GenerateResponseJson(openApiDocument, operation.Value),
-						GeneratedCSharpCode: GenerateCSharpMethod(operation.Value, path.Key, operation.Key, ToPascalCase(group))
-					))).ToArray();
+					.SelectMany(path => path.Value.Operations.Select(operation => new ZoomEndpointInfo
+					{
+						Title = title,
+						Group = group,
+						Name = path.Key,
+						Operation = operation.Key,
+						Summary = operation.Value.Summary,
+						Tag = operation.Value.Tags.First().Name,
+						MethodName = GenerateMethodName(path.Key, operation.Key),
+						GeneratedCSharpCode = GenerateCSharpMethod(operation.Value, path.Key, operation.Key),
+						ResponseJson = GenerateResponseJson(openApiDocument, operation.Value),
+						IsHandled = IsEndpointHandledAsync(handledEndpoints, path.Key, operation.Key)
+					})).ToArray();
 
 				return endpoints;
 			}
@@ -1219,46 +1292,45 @@ namespace RefreshResources
 			var handledEndpoints = new List<(string EndpointName, OperationType OperationType)>();
 			foreach (var filePath in Directory.GetFiles(sourcePath, "*.cs"))
 			{
-				using (FileStream fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan))
-				using (StreamReader streamReader = new StreamReader(fileStream))
+				using FileStream fileStream = new(filePath, FileMode.Open, FileAccess.Read, FileShare.Read, 1024 * 1024, FileOptions.SequentialScan);
+				using StreamReader streamReader = new(fileStream);
+
+				string line;
+				while ((line = streamReader.ReadLine()) != null)
 				{
-					string line;
-					while ((line = streamReader.ReadLine()) != null)
+					var endpoint = _httpGetRegex.Match(line).Groups[1]?.ToString();
+					if (!string.IsNullOrWhiteSpace(endpoint))
 					{
-						var endpoint = _httpGetRegex.Match(line).Groups[1]?.ToString();
-						if (!string.IsNullOrWhiteSpace(endpoint))
-						{
-							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, OperationType.Get));
-						}
+						endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+						handledEndpoints.Add((endpoint, OperationType.Get));
+					}
 
-						endpoint = _httpPostRegex.Match(line).Groups[1]?.ToString();
-						if (!string.IsNullOrWhiteSpace(endpoint))
-						{
-							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, OperationType.Post));
-						}
+					endpoint = _httpPostRegex.Match(line).Groups[1]?.ToString();
+					if (!string.IsNullOrWhiteSpace(endpoint))
+					{
+						endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+						handledEndpoints.Add((endpoint, OperationType.Post));
+					}
 
-						endpoint = _httpPatchRegex.Match(line).Groups[1]?.ToString();
-						if (!string.IsNullOrWhiteSpace(endpoint))
-						{
-							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, OperationType.Patch));
-						}
+					endpoint = _httpPatchRegex.Match(line).Groups[1]?.ToString();
+					if (!string.IsNullOrWhiteSpace(endpoint))
+					{
+						endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+						handledEndpoints.Add((endpoint, OperationType.Patch));
+					}
 
-						endpoint = _httpPutRegex.Match(line).Groups[1]?.ToString();
-						if (!string.IsNullOrWhiteSpace(endpoint))
-						{
-							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, OperationType.Put));
-						}
+					endpoint = _httpPutRegex.Match(line).Groups[1]?.ToString();
+					if (!string.IsNullOrWhiteSpace(endpoint))
+					{
+						endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+						handledEndpoints.Add((endpoint, OperationType.Put));
+					}
 
-						endpoint = _httpDeleteRegex.Match(line).Groups[1]?.ToString();
-						if (!string.IsNullOrWhiteSpace(endpoint))
-						{
-							endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
-							handledEndpoints.Add((endpoint, OperationType.Delete));
-						}
+					endpoint = _httpDeleteRegex.Match(line).Groups[1]?.ToString();
+					if (!string.IsNullOrWhiteSpace(endpoint))
+					{
+						endpoint = string.Join(string.Empty, endpoint.Split('$', '\"'));
+						handledEndpoints.Add((endpoint, OperationType.Delete));
 					}
 				}
 			}
@@ -1420,6 +1492,8 @@ namespace RefreshResources
 
 		private static JsonNode GenerateSample(OpenApiSchema schema, OpenApiDocument doc, bool pickFirstOneOf)
 		{
+			if (schema == null) return null;
+
 			// Resolve $ref
 			if (schema.Reference != null)
 			{
@@ -1514,23 +1588,17 @@ namespace RefreshResources
 
 		private static JsonArray GenerateArray(OpenApiSchema schema, OpenApiDocument doc, bool pickFirstOneOf)
 		{
-			var arr = new JsonArray();
-			arr.Add(GenerateSample(schema.Items, doc, pickFirstOneOf));
+			var arr = new JsonArray
+			{
+				GenerateSample(schema.Items, doc, pickFirstOneOf)
+			};
+
 			return arr;
 		}
 
-		private static string GenerateCSharpMethod(OpenApiOperation operation, string path, OperationType operationType, string className)
+		private static string GenerateCSharpMethod(OpenApiOperation operation, string path, OperationType operationType)
 		{
 			var sb = new StringBuilder();
-			sb.AppendLine("using System;");
-			sb.AppendLine("using System.Collections.Generic;");
-			sb.AppendLine("using System.Threading;");
-			sb.AppendLine("using System.Threading.Tasks;");
-			sb.AppendLine();
-			sb.AppendLine("namespace ZoomNet.Resources");
-			sb.AppendLine("{");
-			sb.AppendLine($"\tpublic partial class {className}");
-			sb.AppendLine("\t{");
 
 			// Generate method documentation
 			if (!string.IsNullOrEmpty(operation.Summary))
@@ -1645,7 +1713,7 @@ namespace RefreshResources
 			var queryParams = allParameters.Where(p => p.In == ParameterLocation.Query).ToList();
 
 			// If there are request body properties, construct the body object
-			if (requestBodyProperties.Any())
+			if (requestBodyProperties.Count > 0)
 			{
 				sb.AppendLine("\t\t\tvar data = new JsonObject");
 				sb.AppendLine("\t\t\t{");
@@ -1675,7 +1743,7 @@ namespace RefreshResources
 				case OperationType.Post:
 					sb.AppendLine("\t\t\treturn _client");
 					sb.AppendLine($"\t\t\t\t.PostAsync(\"{endpoint.TrimStart('/')}\")");
-					if (requestBodyProperties.Any())
+					if (requestBodyProperties.Count > 0)
 					{
 						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
 					}
@@ -1689,7 +1757,7 @@ namespace RefreshResources
 				case OperationType.Put:
 					sb.AppendLine("\t\t\treturn _client");
 					sb.AppendLine($"\t\t\t\t.PutAsync(\"{endpoint.TrimStart('/')}\")");
-					if (requestBodyProperties.Any())
+					if (requestBodyProperties.Count > 0)
 					{
 						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
 					}
@@ -1703,7 +1771,7 @@ namespace RefreshResources
 				case OperationType.Patch:
 					sb.AppendLine("\t\t\treturn _client");
 					sb.AppendLine($"\t\t\t\t.PatchAsync(\"{endpoint.TrimStart('/')}\")");
-					if (requestBodyProperties.Any())
+					if (requestBodyProperties.Count > 0)
 					{
 						sb.AppendLine("\t\t\t\t.WithJsonBody(data)");
 					}
@@ -1727,15 +1795,13 @@ namespace RefreshResources
 			}
 
 			sb.AppendLine("\t\t}");
-			sb.AppendLine("\t}");
-			sb.AppendLine("}");
 
 			return sb.ToString();
 		}
 
 		private static string GetReturnType(OpenApiOperation operation)
 		{
-			var successResponse = operation.Responses.FirstOrDefault(r => r.Key.StartsWith("2"));
+			var successResponse = operation.Responses.FirstOrDefault(r => r.Key.StartsWith('2'));
 			if (successResponse.Value != null && successResponse.Value.Content.TryGetValue("application/json", out var content))
 			{
 				if (content.Schema.Type == "array")
@@ -1772,7 +1838,7 @@ namespace RefreshResources
 		private static string GenerateMethodName(string path, OperationType operationType)
 		{
 			var parts = path.Split('/', StringSplitOptions.RemoveEmptyEntries)
-				.Where(p => !p.StartsWith("{"))
+				.Where(p => !p.StartsWith('{'))
 				.Select(ToPascalCase);
 
 			var verb = operationType switch
@@ -1812,7 +1878,7 @@ namespace RefreshResources
 			return currentBranchName.Equals("develop", StringComparison.OrdinalIgnoreCase);
 		}
 
-		private static async Task RefreshZoomEnums(GitHubClient githubClient, CancellationToken cancellationToken = default)
+		private static async Task RefreshZoomEnums(CancellationToken cancellationToken)
 		{
 			Console.WriteLine();
 			Console.WriteLine("***** Zoom Enums *****");
@@ -1825,12 +1891,12 @@ namespace RefreshResources
 			var content = jsonRootElement.GetProperty("props/pageProps/mainContent/matter/content", '/', true).Value.GetString();
 			var contentLines = content.Split('\n', StringSplitOptions.TrimEntries);
 
-			await RefreshAbbreviationsAsync("Languages", "Language", contentLines).ConfigureAwait(false);
-			await RefreshAbbreviationsAsync("Countries", "Country", contentLines).ConfigureAwait(false);
-			await RefreshAbbreviationsAsync("Timezones", "TimeZones", contentLines).ConfigureAwait(false);
+			await RefreshAbbreviationsAsync("Languages", "Language", contentLines, cancellationToken).ConfigureAwait(false);
+			await RefreshAbbreviationsAsync("Countries", "Country", contentLines, cancellationToken).ConfigureAwait(false);
+			await RefreshAbbreviationsAsync("Timezones", "TimeZones", contentLines, cancellationToken).ConfigureAwait(false);
 		}
 
-		private static async Task RefreshAbbreviationsAsync(string sectionTitle, string enumClassName, string[] contentLines)
+		private static async Task RefreshAbbreviationsAsync(string sectionTitle, string enumClassName, string[] contentLines, CancellationToken cancellationToken)
 		{
 			var abbreviations = GetAbbreviations(sectionTitle, contentLines);
 
@@ -1912,7 +1978,7 @@ namespace RefreshResources
 			for (int i = sectionTitleIndex + 1; i < contentLines.Length; i++)
 			{
 				if (string.IsNullOrWhiteSpace(contentLines[i])) continue; // Skip blank lines
-				else if (!contentLines[i].TrimStart().StartsWith("|")) continue; // Only consider lines that start with the '|' character. In other words: exclude comments
+				else if (!contentLines[i].TrimStart().StartsWith('|')) continue; // Only consider lines that start with the '|' character. In other words: exclude comments
 				else if (contentLines[i] == "| ID | Name |") continue; // Exclude table header
 				else if (contentLines[i] == "| -- | ---- |") continue; // Exclude table header separator
 				else
