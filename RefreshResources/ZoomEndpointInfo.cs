@@ -24,6 +24,8 @@ namespace RefreshResources
 
 		public string GeneratedCSharpCode { get; set; }
 
+		public string GeneratedInterfaceMethod { get; set; }
+
 		public string MethodName { get; set; }
 
 		public bool IsHandled { get; set; }

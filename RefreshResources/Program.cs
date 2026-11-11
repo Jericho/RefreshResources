@@ -1197,58 +1197,88 @@ namespace RefreshResources
 			SaveResxFile(resxDoc, resxPath);
 
 			// Generate C# code for each endpoint
-			var csharpCodePath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.GeneratedCode";
-			if (!Directory.Exists(csharpCodePath)) Directory.CreateDirectory(csharpCodePath);
+			var generatedCsharpCodePath = @"D:\\_build\\ZoomNet\\Source\\ZoomNet.GeneratedCode";
+			if (!Directory.Exists(generatedCsharpCodePath)) Directory.CreateDirectory(generatedCsharpCodePath);
 
 			var csharpFilesCreated = 0;
 			var csharpFilesUpdated = 0;
 
+			var interfaceFilesCreated = 0;
+			var interfaceFilesUpdated = 0;
+
 			foreach (var endpointGroup in allEndpoints.Where(endpoint => !endpoint.IsHandled && !string.IsNullOrEmpty(endpoint.GeneratedCSharpCode)).GroupBy(endpoint => endpoint.Group))
 			{
 				var className = ToPascalCase(endpointGroup.Key);
-				var filename = $"{className}.cs";
-				var codePath = Path.Combine(csharpCodePath, filename);
-				var sb = new StringBuilder();
+				var interfaceName = $"I{className}";
 
-				sb.AppendLine("using System;");
-				sb.AppendLine("using System.Collections.Generic;");
-				sb.AppendLine("using System.Threading;");
-				sb.AppendLine("using System.Threading.Tasks;");
-				sb.AppendLine();
-				sb.AppendLine("namespace ZoomNet.Resources");
-				sb.AppendLine("{");
-				sb.AppendLine($"\tpublic partial class {className}");
-				sb.AppendLine("\t{");
+				var csharpFilename = $"{className}.cs";
+				var csharpCodePath = Path.Combine(generatedCsharpCodePath, csharpFilename);
 
+				var interfaceFilename = $"{interfaceName}.cs";
+				var interfaceCodePath = Path.Combine(generatedCsharpCodePath, interfaceFilename);
+
+				var csharpContent = new StringBuilder();
+				var interfaceContent = new StringBuilder();
+
+				AppendLine(csharpContent, interfaceContent, "using System;");
+				AppendLine(csharpContent, interfaceContent, "using System.Collections.Generic;");
+				AppendLine(csharpContent, interfaceContent, "using System.Threading;");
+				AppendLine(csharpContent, interfaceContent, "using System.Threading.Tasks;");
+				AppendLine(csharpContent, interfaceContent, "");
+				AppendLine(csharpContent, interfaceContent, "namespace ZoomNet.Resources");
+				AppendLine(csharpContent, interfaceContent, "{");
+				AppendLine(csharpContent, null, $"\tpublic class {className}");
+				AppendLine(null, interfaceContent, $"\tpublic interface I{className}");
+				AppendLine(csharpContent, interfaceContent, "\t{");
 
 				foreach (var endpoint in endpointGroup)
 				{
-					sb.AppendLine(endpoint.GeneratedCSharpCode);
+					AppendLine(csharpContent, null, endpoint.GeneratedCSharpCode);
+					AppendLine(null, interfaceContent, endpoint.GeneratedInterfaceMethod);
 				}
 
-				sb.AppendLine("\t}");
-				sb.AppendLine("}");
-				sb.AppendLine();
+				AppendLine(csharpContent, interfaceContent, "\t}");
+				AppendLine(csharpContent, interfaceContent, "}");
+				AppendLine(csharpContent, interfaceContent, "");
 
-				var codeContent = sb.ToString();
+				var (created, updated) = SaveFileIfChanged(csharpCodePath, csharpContent.ToString());
+				if (created) csharpFilesCreated++;
+				if (updated) csharpFilesUpdated++;
 
-				if (File.Exists(codePath))
-				{
-					if (!SameContent(codeContent, new FileInfo(codePath)))
-					{
-						await File.WriteAllTextAsync(codePath, codeContent, cancellationToken).ConfigureAwait(false);
-						csharpFilesUpdated++;
-					}
-				}
-				else
-				{
-					await File.WriteAllTextAsync(codePath, codeContent, cancellationToken).ConfigureAwait(false);
-					csharpFilesCreated++;
-				}
+				(created, updated) = SaveFileIfChanged(interfaceCodePath, interfaceContent.ToString());
+				if (created) interfaceFilesCreated++;
+				if (updated) interfaceFilesUpdated++;
 			}
 
 			Console.WriteLine($"{csharpFilesCreated} C# code files were created");
 			Console.WriteLine($"{csharpFilesUpdated} C# code files were updated");
+		}
+
+		private static (bool created, bool updated) SaveFileIfChanged(string filePath, string content)
+		{
+			if (File.Exists(filePath))
+			{
+				if (!SameContent(content, new FileInfo(filePath)))
+				{
+					File.WriteAllText(filePath, content);
+					return (false, true); // updated
+				}
+				else
+				{
+					return (false, false); // no change
+				}
+			}
+			else
+			{
+				File.WriteAllText(filePath, content);
+				return (true, false); // created
+			}
+		}
+
+		private static void AppendLine(StringBuilder csharpContent, StringBuilder interfaceContent, string line)
+		{
+			if (csharpContent != null) csharpContent.AppendLine(line);
+			if (interfaceContent != null) interfaceContent.AppendLine(line);
 		}
 
 		private static async Task<ZoomEndpointInfo[]> GetZoomEndpointsList(HttpClient httpClient, string title, string group, (string Endpoint, OperationType OperationType)[] handledEndpoints, CancellationToken cancellationToken)
@@ -1275,7 +1305,8 @@ namespace RefreshResources
 						Summary = operation.Value.Summary,
 						Tag = operation.Value.Tags.First().Name,
 						MethodName = GenerateMethodName(path.Key, operation.Key),
-						GeneratedCSharpCode = GenerateCSharpMethod(operation.Value, path.Key, operation.Key),
+						GeneratedCSharpCode = GenerateCSharpMethod(operation.Value, path.Key, operation.Key, false),
+						GeneratedInterfaceMethod = GenerateCSharpMethod(operation.Value, path.Key, operation.Key, true),
 						ResponseJson = GenerateResponseJson(openApiDocument, operation.Value),
 						IsHandled = IsEndpointHandledAsync(handledEndpoints, path.Key, operation.Key)
 					})).ToArray();
@@ -1597,77 +1628,86 @@ namespace RefreshResources
 			return arr;
 		}
 
-		private static string GenerateCSharpMethod(OpenApiOperation operation, string path, OperationType operationType)
+		private static string GenerateCSharpMethod(OpenApiOperation operation, string path, OperationType operationType, bool generateInterface)
 		{
+			var allParameters = operation.Parameters ?? new List<OpenApiParameter>();
+			var requestBodyProperties = new List<(string Name, OpenApiSchema Schema, bool IsRequired, string Description)>();
 			var sb = new StringBuilder();
 
 			// Generate method documentation
-			if (!string.IsNullOrEmpty(operation.Summary))
+			if (generateInterface)
 			{
-				var summary = operation.Summary
-					.Replace("\r\n", "\n")
-					.Replace("\n", "\r\n\t\t///");
-
-				sb.AppendLine("\t\t/// <summary>");
-				sb.AppendLine($"\t\t/// {summary}");
-				sb.AppendLine("\t\t/// </summary>");
-			}
-
-			if (!string.IsNullOrEmpty(operation.Description))
-			{
-				var description = operation.Description
-					.Replace("\r\n", "\n")
-					.Replace("\n", "\r\n\t\t///");
-
-				sb.AppendLine("\t\t/// <remarks>");
-				sb.AppendLine($"\t\t/// {description}");
-				sb.AppendLine("\t\t/// </remarks>");
-			}
-
-			// Generate parameter documentation
-			var allParameters = operation.Parameters ?? new List<OpenApiParameter>();
-			foreach (var param in allParameters)
-			{
-				sb.AppendLine($"\t\t/// <param name=\"{ToCamelCase(param.Name)}\">{param.Description ?? param.Name}</param>");
-			}
-
-			// Extract request body properties
-			var requestBodyProperties = new List<(string Name, OpenApiSchema Schema, bool IsRequired, string Description)>();
-			if (operation.RequestBody != null && operation.RequestBody.Content.TryGetValue("application/json", out var requestContent))
-			{
-				var schema = requestContent.Schema;
-
-				// Resolve reference if needed
-				if (schema.Reference != null)
+				if (!string.IsNullOrEmpty(operation.Summary))
 				{
-					// Schema reference will need to be resolved from the document
-					// For now, we'll just note it exists
+					var summary = operation.Summary
+						.Replace("\r\n", "\n")
+						.Replace("\n", "\r\n\t\t///");
+
+					sb.AppendLine("\t\t/// <summary>");
+					sb.AppendLine($"\t\t/// {summary}");
+					sb.AppendLine("\t\t/// </summary>");
 				}
 
-				if (schema.Properties != null && schema.Properties.Any())
+				if (!string.IsNullOrEmpty(operation.Description))
 				{
-					foreach (var prop in schema.Properties)
+					var description = operation.Description
+						.Replace("\r\n", "\n")
+						.Replace("\n", "\r\n\t\t///");
+
+					sb.AppendLine("\t\t/// <remarks>");
+					sb.AppendLine($"\t\t/// {description}");
+					sb.AppendLine("\t\t/// </remarks>");
+				}
+
+				// Generate parameter documentation
+				foreach (var param in allParameters)
+				{
+					sb.AppendLine($"\t\t/// <param name=\"{ToCamelCase(param.Name)}\">{param.Description ?? param.Name}</param>");
+				}
+
+				// Extract request body properties
+				if (operation.RequestBody != null && operation.RequestBody.Content.TryGetValue("application/json", out var requestContent))
+				{
+					var schema = requestContent.Schema;
+
+					// Resolve reference if needed
+					if (schema.Reference != null)
 					{
-						var isRequired = schema.Required?.Contains(prop.Key) ?? false;
-						requestBodyProperties.Add((prop.Key, prop.Value, isRequired, prop.Value?.Description ?? string.Empty));
+						// Schema reference will need to be resolved from the document
+						// For now, we'll just note it exists
+					}
+
+					if (schema.Properties != null && schema.Properties.Any())
+					{
+						foreach (var prop in schema.Properties)
+						{
+							var isRequired = schema.Required?.Contains(prop.Key) ?? false;
+							requestBodyProperties.Add((prop.Key, prop.Value, isRequired, prop.Value?.Description ?? string.Empty));
+						}
 					}
 				}
-			}
 
-			// Document request body properties as parameters
-			foreach (var prop in requestBodyProperties)
+				// Document request body properties as parameters
+				foreach (var prop in requestBodyProperties)
+				{
+					sb.AppendLine($"\t\t/// <param name=\"{ToCamelCase(prop.Name)}\">{prop.Description ?? prop.Name}</param>");
+				}
+
+				sb.AppendLine("\t\t/// <param name=\"cancellationToken\">The cancellation token.</param>");
+				sb.AppendLine("\t\t/// <returns>The response.</returns>");
+			}
+			else
 			{
-				sb.AppendLine($"\t\t/// <param name=\"{ToCamelCase(prop.Name)}\">{prop.Description ?? prop.Name}</param>");
+				sb.AppendLine("\t\t/// <inheritdoc />");
 			}
-
-			sb.AppendLine("\t\t/// <param name=\"cancellationToken\">The cancellation token.</param>");
-			sb.AppendLine("\t\t/// <returns>The response.</returns>");
 
 			// Generate method signature
 			var methodName = operation.OperationId ?? GenerateMethodName(path, operationType);
 			var returnType = GetReturnType(operation);
 
-			sb.Append($"\t\tpublic Task<{returnType}> {ToPascalCase(methodName)}Async(");
+			if (generateInterface) sb.Append($"\t\tTask<{returnType}> {ToPascalCase(methodName)}Async(");
+			else sb.Append($"\t\tpublic Task<{returnType}> {ToPascalCase(methodName)}Async(");
+
 
 			// Add parameters
 			var parameters = new List<string>();
@@ -1699,7 +1739,13 @@ namespace RefreshResources
 			parameters.Add("CancellationToken cancellationToken = default");
 
 			sb.AppendLine(string.Join(", ", parameters) + ")");
-			sb.AppendLine("\t\t{");
+
+			// Add semicolon for interface method, or start method body for implementation
+			if (generateInterface)
+			{
+				sb.AppendLine(";");
+				return sb.ToString();
+			}
 
 			// Generate method body
 			var httpMethod = operationType.ToString().ToUpper();
