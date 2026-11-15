@@ -39,7 +39,7 @@ namespace RefreshResources
 		private const string ROOT_FOLDER = "D:\\_build\\";
 		private const string SOURCE_FOLDER = ROOT_FOLDER + "resources";
 		private const int MAX_NUGET_CONCURENCY = 25; // 25 seems like a safe value but I suspect nuget allows a much larger number of concurrent connections.
-		private const int DESIRED_SDK_MAJOR_VERSION = 10;
+		private const int DESIRED_SDK_MAJOR_VERSION = 11;
 
 		private const string DESIRED_CAKE_VERSION_FOR_LIBRARIES = "7.0.0";
 		private const string DESIRED_CAKE_VERSION_FOR_CAKE_ADDINS = "2.3.0";
