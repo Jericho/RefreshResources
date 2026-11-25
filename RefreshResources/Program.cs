@@ -872,9 +872,9 @@ namespace RefreshResources
 
 						return new ZoomWebhookInfo
 						{
-							IsDeprecated = prop.Value.GetProperty("post").GetProperty("deprecated").GetBoolean(),
-							Description = prop.Value.GetProperty("post").GetProperty("description").GetString(),
-							OperationId = prop.Value.GetProperty("post").GetProperty("operationId").GetString(),
+							IsDeprecated = postProperty.GetProperty("deprecated").GetBoolean(),
+							Description = postProperty.GetProperty("description").GetString(),
+							OperationId = postProperty.GetProperty("operationId").GetString(),
 							Title = title,
 							Group = group,
 							Name = prop.Name,
