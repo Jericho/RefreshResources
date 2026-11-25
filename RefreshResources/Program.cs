@@ -544,9 +544,6 @@ namespace RefreshResources
 			if (!destination.Exists)
 				return false;
 
-			if (content.Length != destination.Length)
-				return false;
-
 			var sourceContent = Encoding.UTF8.GetBytes(content);
 			var destinationContent = File.ReadAllBytes(destination.FullName);
 
